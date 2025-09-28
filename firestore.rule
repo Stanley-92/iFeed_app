@@ -1,0 +1,201 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* ---------- Helpers ---------- */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Optional: set via custom claims for moderators/admins
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    function isServerTimestamp(ts) {
+      // Firestore rules can’t detect FieldValue.serverTimestamp() directly,
+      // but new writes shouldn’t be allowed to set arbitrary timestamps.
+      // Allow null (for create) or a valid timestamp type.
+      return ts == null || ts is timestamp;
+    }
+
+    // Basic string length check
+    function strLenOk(field, minLen, maxLen) {
+      return field is string && field.size() >= minLen && field.size() <= maxLen;
+    }
+
+    // Restrict data keys to a known schema (prevents extra fields)
+    function onlyKeys(data, allowedKeys) {
+      return data.keys().hasOnly(allowedKeys);
+    }
+
+    /* ---------- USERS ---------- */
+    match /users/{uid} {
+      allow read: if true; // public profile (or tighten later)
+
+      allow create: if isOwner(uid) && validateCreateUser(request.resource.data);
+      allow update: if isOwner(uid) && validateUpdateUser(resource.data, request.resource.data);
+      // Don’t allow delete via client for now; do it via admin tools
+      allow delete: if false;
+
+      function validateCreateUser(data) {
+        return onlyKeys(data, [
+          'uid','displayName','photoURL','email','phoneNumber',
+          'dob','gender','createdAt','updatedAt','lastSeen','providerIds'
+        ])
+        && data.uid == request.auth.uid
+        && (!('displayName' in data) || strLenOk(data.displayName, 1, 60))
+        && (!('photoURL' in data) || data.photoURL is string)
+        && (!('email' in data) || data.email is string)
+        && (!('phoneNumber' in data) || data.phoneNumber is string)
+        && (!('gender' in data) || (data.gender in ['Male','Female','Other']))
+        && (!('dob' in data) || (data.dob is map
+            && data.dob.keys().hasOnly(['day','month','year'])
+            && data.dob.day is string && data.dob.month is string && data.dob.year is string))
+        && isServerTimestamp(data.createdAt)
+        && isServerTimestamp(data.updatedAt)
+        && (!('lastSeen' in data) || isServerTimestamp(data.lastSeen))
+        && (!('providerIds' in data) || data.providerIds is list);
+      }
+
+      function validateUpdateUser(oldData, newData) {
+        // uid and createdAt immutable; others restricted
+        return onlyKeys(newData, [
+          'uid','displayName','photoURL','email','phoneNumber',
+          'dob','gender','createdAt','updatedAt','lastSeen','providerIds'
+        ])
+        && newData.uid == oldData.uid
+        && newData.createdAt == oldData.createdAt
+        && (!('displayName' in newData) || strLenOk(newData.displayName, 1, 60))
+        && (!('photoURL' in newData) || newData.photoURL is string)
+        && (!('email' in newData) || newData.email is string)
+        && (!('phoneNumber' in newData) || newData.phoneNumber is string)
+        && (!('gender' in newData) || (newData.gender in ['Male','Female','Other']))
+        && (!('dob' in newData) || (newData.dob is map
+            && newData.dob.keys().hasOnly(['day','month','year'])
+            && newData.dob.day is string && newData.dob.month is string && newData.dob.year is string))
+        && isServerTimestamp(newData.updatedAt)
+        && (!('lastSeen' in newData) || isServerTimestamp(newData.lastSeen))
+        && (!('providerIds' in newData) || newData.providerIds is list);
+      }
+    }
+
+    /* ---------- POSTS ---------- */
+    match /posts/{postId} {
+      allow read: if true;
+
+      allow create: if isSignedIn() && validateCreatePost(request.resource.data);
+      allow update: if isOwner(resource.data.uid) && validateUpdatePost(resource.data, request.resource.data);
+      allow delete: if isOwner(resource.data.uid) || isAdmin();
+
+      function validateCreatePost(data) {
+        return onlyKeys(data, [
+          'uid','text','mediaUrl','mediaType',
+          'likes','commentsCount','createdAt','updatedAt','visibility'
+        ])
+        && data.uid == request.auth.uid
+        && (!('text' in data) || strLenOk(data.text, 0, 2000))
+        && (!('mediaUrl' in data) || data.mediaUrl is string)
+        && (!('mediaType' in data) || (data.mediaType in ['image','video','none']))
+        && (!('visibility' in data) || (data.visibility in ['public','followers']))
+        && data.likes == 0
+        && data.commentsCount == 0
+        && isServerTimestamp(data.createdAt)
+        && isServerTimestamp(data.updatedAt);
+      }
+
+      function validateUpdatePost(oldData, newData) {
+        // uid & createdAt immutable; counters may change
+        return onlyKeys(newData, [
+          'uid','text','mediaUrl','mediaType',
+          'likes','commentsCount','createdAt','updatedAt','visibility'
+        ])
+        && newData.uid == oldData.uid
+        && newData.createdAt == oldData.createdAt
+        && (!('text' in newData) || strLenOk(newData.text, 0, 2000))
+        && (!('mediaUrl' in newData) || newData.mediaUrl is string)
+        && (!('mediaType' in newData) || (newData.mediaType in ['image','video','none']))
+        && (!('visibility' in newData) || (newData.visibility in ['public','followers']))
+        && newData.likes is int && newData.likes >= 0
+        && newData.commentsCount is int && newData.commentsCount >= 0
+        && isServerTimestamp(newData.updatedAt);
+      }
+    }
+
+    /* ---------- COMMENTS ---------- */
+    match /comments/{commentId} {
+      allow read: if true;
+
+      allow create: if isSignedIn() && validateCreateComment(request.resource.data);
+      allow update: if isOwner(resource.data.uid) && validateUpdateComment(resource.data, request.resource.data);
+      allow delete: if isOwner(resource.data.uid) || isAdmin();
+
+      function validateCreateComment(data) {
+        return onlyKeys(data, [
+          'postId','uid','text','parentId','createdAt','updatedAt'
+        ])
+        && data.uid == request.auth.uid
+        && data.postId is string
+        && (!('parentId' in data) || data.parentId is string || data.parentId == null)
+        && strLenOk(data.text, 1, 1000)
+        && isServerTimestamp(data.createdAt)
+        && isServerTimestamp(data.updatedAt);
+      }
+
+      function validateUpdateComment(oldData, newData) {
+        return onlyKeys(newData, [
+          'postId','uid','text','parentId','createdAt','updatedAt'
+        ])
+        && newData.uid == oldData.uid
+        && newData.postId == oldData.postId
+        && newData.parentId == oldData.parentId
+        && strLenOk(newData.text, 1, 1000)
+        && newData.createdAt == oldData.createdAt
+        && isServerTimestamp(newData.updatedAt);
+      }
+    }
+
+    /* ---------- LIKES ---------- */
+    // One like document per (postId, uid). Create with a deterministic ID, e.g. `${postId}_${uid}`
+    match /likes/{likeId} {
+      allow read: if true;
+
+      allow create: if isSignedIn() && validateCreateLike(request.resource.data);
+      allow delete: if isOwner(resource.data.uid) || isAdmin();
+      allow update: if false; // likes shouldn't be updated
+
+      function validateCreateLike(data) {
+        return onlyKeys(data, ['postId','uid','createdAt'])
+        && data.uid == request.auth.uid
+        && data.postId is string
+        && isServerTimestamp(data.createdAt);
+      }
+    }
+
+    /* ---------- REPORTS (abuse/spam) ---------- */
+    match /reports/{reportId} {
+      allow read: if isAdmin(); // keep private
+      allow create: if isSignedIn() && validateReport(request.resource.data);
+      allow update, delete: if isAdmin();
+
+      function validateReport(data) {
+        return onlyKeys(data, [
+          'targetId','targetType','reason','reporterUid','createdAt'
+        ])
+        && data.reporterUid == request.auth.uid
+        && (data.targetType in ['post','comment','user'])
+        && strLenOk(data.reason, 3, 500)
+        && isServerTimestamp(data.createdAt);
+      }
+    }
+
+    /* ---------- Fallback: deny anything else ---------- */
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

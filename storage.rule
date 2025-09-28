@@ -1,0 +1,31 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // User-specific private area (e.g., avatars, drafts)
+    match /users/{uid}/{allPaths=**} {
+      allow read: if isOwner(uid);              // private by default
+      allow write: if isOwner(uid);
+    }
+
+    // Public post media: /posts/{uid}/{postId}/{filename}
+    match /posts/{uid}/{postId}/{fileName} {
+      allow read: if true;                      // public feed media
+      allow write: if isOwner(uid);
+      // Optional: limit size, mime type
+      // allow write: if isOwner(uid) && request.resource.size < 20 * 1024 * 1024
+      //   && request.resource.contentType.matches('image/.*|video/.*');
+    }
+
+    // Deny the rest
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

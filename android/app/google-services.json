@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "648857401957",
+    "project_id": "ifeed-27988",
+    "storage_bucket": "ifeed-27988.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:648857401957:android:69b64348c1f0087a3b648c",
+        "android_client_info": {
+          "package_name": "com.example.flutter_app_ifeed"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBh3j7jXEckyawzmOxM_UyjBN7dmK8QCUY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
