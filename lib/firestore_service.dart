@@ -1,19 +1,24 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-class FirestoreService {
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
+final _db = FirebaseFirestore.instance;
 
-  Future<void> saveExtraProfile(
-    String uid, {
-    required String day,
-    required String month,
-    required String year,
-    required String gender,
-  }) async {
-    await _db.collection('users').doc(uid).set({
-      'dob': {'day': day, 'month': month, 'year': year},
-      'gender': gender,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-  }
+/// Create/merge the user profile in Firestore.
+Future<void> saveUserProfile({
+  required String uid,
+  String? displayName,
+  String? email,
+  required String day,
+  required String month,
+  required String year,
+  required String gender,
+}) {
+  return _db.collection('users').doc(uid).set({
+    'uid'        : uid,
+    'email'      : email,
+    'displayName': displayName,
+    'dob'        : {'day': day, 'month': month, 'year': year},
+    'gender'     : gender,
+    'updatedAt'  : FieldValue.serverTimestamp(),
+    'createdAt'  : FieldValue.serverTimestamp(), // only set first time
+  }, SetOptions(merge: true));
 }
