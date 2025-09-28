@@ -2,25 +2,35 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleDevelopmentRegion</key>
-  <string>en</string>
-  <key>CFBundleExecutable</key>
-  <string>App</string>
-  <key>CFBundleIdentifier</key>
-  <string>io.flutter.flutter.app</string>
-  <key>CFBundleInfoDictionaryVersion</key>
-  <string>6.0</string>
-  <key>CFBundleName</key>
-  <string>App</string>
-  <key>CFBundlePackageType</key>
-  <string>FMWK</string>
-  <key>CFBundleShortVersionString</key>
-  <string>1.0</string>
-  <key>CFBundleSignature</key>
-  <string>????</string>
-  <key>CFBundleVersion</key>
-  <string>1.0</string>
-  <key>MinimumOSVersion</key>
-  <string>12.0</string>
+	<key>CLIENT_ID</key>
+	<string>648857401957-8gsqfpeb8gv1lcft029t59hf4853sohn.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.648857401957-8gsqfpeb8gv1lcft029t59hf4853sohn</string>
+	<key>ANDROID_CLIENT_ID</key>
+	<string>648857401957-vd64eni89hbnf1uen8oclig01dtjgrqh.apps.googleusercontent.com</string>
+	<key>API_KEY</key>
+	<string>AIzaSyC4Yg_eOVsBg7sqLtQutKawI9amhQQtMvc</string>
+	<key>GCM_SENDER_ID</key>
+	<string>648857401957</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.example.flutterAppIfeed</string>
+	<key>PROJECT_ID</key>
+	<string>ifeed-27988</string>
+	<key>STORAGE_BUCKET</key>
+	<string>ifeed-27988.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:648857401957:ios:53cdd7c7f895b6e83b648c</string>
 </dict>
 </plist>
