@@ -14,6 +14,10 @@ import 'package:iconify_flutter/icons/uil.dart';
 import 'package:iconify_flutter/icons/tabler.dart';
 import 'package:iconify_flutter/icons/ri.dart';
 
+//Firebase and Google
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
 import 'share_popup.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
@@ -1659,6 +1663,7 @@ class _BarIcon extends StatelessWidget {
 }
 
 /// ======================= UPLOAD PAGE =======================
+/// ======================= UPLOAD PAGE =======================
 class UploadPostPage extends StatefulWidget {
   const UploadPostPage({super.key});
   @override
@@ -1700,6 +1705,27 @@ class _UploadPostPageState extends State<UploadPostPage> {
         _media.add(PickedMedia(File(x.path), type));
       }
     });
+  }
+
+  /// Fetch current user's displayName/photo from Firestore (fallback to Auth)
+  Future<({String name, String? avatar})> _getCurrentProfile() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw Exception('Not signed in');
+
+    final snap = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get();
+    final data = snap.data();
+
+    final name = (data?['displayName'] as String?)?.trim().isNotEmpty == true
+        ? (data!['displayName'] as String).trim()
+        : (user.displayName ??
+              (user.email != null ? user.email!.split('@').first : 'User'));
+
+    final avatar = (data?['photoURL'] as String?) ?? user.photoURL;
+
+    return (name: name, avatar: avatar);
   }
 
   @override
@@ -1755,15 +1781,19 @@ class _UploadPostPageState extends State<UploadPostPage> {
                       ],
                     ),
                     const SizedBox(height: 2),
+
+                    // (Optional) you can show current user here by fetching with a FutureBuilder
                     const Row(
                       children: [
                         CircleAvatar(
                           radius: 25,
-                          backgroundImage: NetworkImage(''),
+                          backgroundImage: NetworkImage(
+                            '',
+                          ), // leave blank or wire a FutureBuilder
                         ),
                         SizedBox(width: 15),
                         Text(
-                          'sinayun_xyn',
+                          '', // user name could go here with FutureBuilder
                           style: TextStyle(
                             fontWeight: FontWeight.w500,
                             fontSize: 18,
@@ -1779,6 +1809,7 @@ class _UploadPostPageState extends State<UploadPostPage> {
                         ),
                       ],
                     ),
+
                     const SizedBox(height: 15),
                     TextField(
                       controller: _text,
@@ -1801,6 +1832,7 @@ class _UploadPostPageState extends State<UploadPostPage> {
                       ),
                     ),
                     const SizedBox(height: 12),
+
                     Row(
                       children: [
                         IconButton(
@@ -1830,12 +1862,15 @@ class _UploadPostPageState extends State<UploadPostPage> {
                         ),
                       ],
                     ),
+
                     if (_media.isNotEmpty)
                       _PreviewWrap(
                         media: _media,
                         onRemove: (i) => setState(() => _media.removeAt(i)),
                       ),
+
                     const SizedBox(height: 400),
+
                     Row(
                       children: [
                         const Text(
@@ -1845,7 +1880,11 @@ class _UploadPostPageState extends State<UploadPostPage> {
                         const Spacer(),
                         FilledButton(
                           onPressed: _canPost
-                              ? () {
+                              ? () async {
+                                  // 🔥 Fetch current user profile here
+                                  final me = await _getCurrentProfile();
+
+                                  // Normalize picked media into your model
                                   final List<model.PostMedia> normalized =
                                       _media.map<model.PostMedia>((pm) {
                                         return pm.type == MediaType.video
@@ -1858,14 +1897,17 @@ class _UploadPostPageState extends State<UploadPostPage> {
                                   final result = model.Post(
                                     id: DateTime.now().millisecondsSinceEpoch
                                         .toString(),
-                                    authorName: 'sinayun_xyn',
+                                    authorName: me.name, // ✅ dynamic name
                                     authorAvatar:
-                                        'https://i.pravatar.cc/150?img=68',
+                                        me.avatar ??
+                                        '', // ✅ dynamic avatar (can be empty)
                                     timeText: 'just now',
                                     caption: _text.text.trim(),
                                     media: normalized,
                                     comments: const [],
                                   );
+
+                                  if (!mounted) return;
                                   Navigator.pop<model.Post>(context, result);
                                 }
                               : null,
