@@ -11,52 +11,72 @@ import 'package:iconify_flutter/icons/fa.dart';
 import 'package:iconify_flutter/icons/gg.dart';
 import 'package:iconify_flutter/icons/teenyicons.dart';
 import 'package:iconify_flutter/icons/uil.dart';
-
-
-import 'share_popup.dart'; //Pop up share 
 import 'package:iconify_flutter/icons/tabler.dart';
+import 'package:iconify_flutter/icons/ri.dart';
+
+import 'share_popup.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
-import 'package:iconify_flutter/icons/ri.dart';
 
-
-
-
-import 'post_modal.dart' as model; // <-- shared Post/PostMedia model
+import 'post_modal.dart' as model;
 import 'activity_page.dart';
 import 'suggestions_page.dart';
 import 'reel_page.dart';
 import 'comments_page.dart' as reply;
 import 'listcontact.dart' as lc;
 import 'profile.dart' as profile;
-Offset? _tapPosition; // store where the user tapped
+
+Offset? _tapPosition;
 const String defaultAvatarAsset = 'assets/images/default_avatar.png';
 
 void main() => runApp(const MaterialApp(home: MainfeedScreen()));
 
-/// STORY MODEL 
+/// ======================= STORY MODELS (multi-item) =======================
 class Story {
-  Story({
-    required this.id,
-    required this.name,
-    required this.isVideo,
-    required this.isLocal,
-    this.mediaPath,
-    this.coverUrl,
-    this.thumbByes,
-  });
+  Story({required this.id, required this.name, required this.items});
 
   final String id;
   final String name;
-  final bool isVideo;
-  final bool isLocal;
-  final String? mediaPath;     // local file path
-  final String? coverUrl;      // network image
-  final Uint8List? thumbByes;  // generated thumbnail for video
+  final List<StoryItem> items;
+
+  bool get hasItems => items.isNotEmpty;
+
+  ImageProvider? get coverImageProvider {
+    if (items.isEmpty) return null;
+    final first = items.first;
+    if (first.isVideo) {
+      if (first.thumbBytes != null) return MemoryImage(first.thumbBytes!);
+      return null;
+    } else {
+      if (first.isLocal) {
+        return first.path != null ? FileImage(File(first.path!)) : null;
+      } else {
+        return first.url != null ? NetworkImage(first.url!) : null;
+      }
+    }
+  }
 }
 
-//MAIN FEED 
+class StoryItem {
+  StoryItem({
+    required this.isVideo,
+    required this.isLocal,
+    this.path,
+    this.url,
+    this.thumbBytes,
+    this.caption,
+  });
+
+  final bool isVideo;
+  final bool isLocal;
+  final String? path; // local path
+  final String? url; // network url
+  final Uint8List? thumbBytes;
+  final String? caption;
+}
+
+/// ======================= MAIN FEED =======================
 class MainfeedScreen extends StatefulWidget {
   const MainfeedScreen({super.key});
   @override
@@ -65,9 +85,8 @@ class MainfeedScreen extends StatefulWidget {
 
 class _MainfeedScreenState extends State<MainfeedScreen> {
   final List<_Post> _feedPosts = [];
-  final List<ReelItem> _reels = <ReelItem>[];     // videos for ReelsPage
+  final List<ReelItem> _reels = <ReelItem>[];
 
-  // Stories
   final ImagePicker _storyPicker = ImagePicker();
   Story? myStory;
 
@@ -76,145 +95,164 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
     (i) => Story(
       id: 'rem_$i',
       name: _names[i % _names.length],
-      isVideo: false,
-      isLocal: false,
-      coverUrl: _avatars[i % _avatars.length],
+      items: [
+        StoryItem(
+          isVideo: false,
+          isLocal: false,
+          url: _avatars[i % _avatars.length],
+        ),
+      ],
     ),
   );
 
-String _feedTab = 'for_you'; // remember selection
+  String _feedTab = 'for_you';
 
-void _openFilterMenu(BuildContext context) {
-  final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-  if (_tapPosition == null) return;
+  bool _isVideoPath(String p) {
+    final s = p.toLowerCase();
+    return s.endsWith('.mp4') ||
+        s.endsWith('.mov') ||
+        s.endsWith('.m4v') ||
+        s.endsWith('.3gp') ||
+        s.endsWith('.webm') ||
+        s.endsWith('.mkv') ||
+        s.endsWith('.avi');
+  }
 
-  // place the menu a bit LEFT of the icon and slightly lower
-  const menuWidth = 170.0;
-  final left = _tapPosition!.dx - menuWidth;
-  final top  = _tapPosition!.dy + 8;
+  void _openFilterMenu(BuildContext context) {
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    if (_tapPosition == null) return;
 
-  showMenu<String>(
-    context: context,
-    position: RelativeRect.fromLTRB(
-      left,
-      top,
-      overlay.size.width - left,
-      overlay.size.height - top,
-    ),
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(8),
-      side: const BorderSide(color: Color(0xFFE5E7EB)),
-    ),
-    items: [
-      PopupMenuItem(
-        value: 'for_you',
-        child: Row(
-          children: [
-            const Expanded(child: Text('For you')),
-            if (_feedTab == 'for_you') const Iconify(Ph.heart_fill, size: 18, color: Colors.red,),
-          ],
-        ),
+    const menuWidth = 170.0;
+    final left = _tapPosition!.dx - menuWidth;
+    final top = _tapPosition!.dy + 8;
+
+    showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        left,
+        top,
+        overlay.size.width - left,
+        overlay.size.height - top,
       ),
-      const PopupMenuDivider(),
-      PopupMenuItem(
-        value: 'following',
-        child: Row(
-          children: [
-            const Expanded(child: Text('Following', style: TextStyle(fontWeight: FontWeight.w600))),
-            if (_feedTab == 'following') const Iconify(Ph.check, size: 18),
-          ],
-        ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: Color(0xFFE5E7EB)),
       ),
-    ],
-  ).then((value) {
-    if (value == null) return;
-    setState(() => _feedTab = value);
-    // TODO: apply your feed filtering here based on _feedTab
-  });
-}
+      items: [
+        PopupMenuItem(
+          value: 'for_you',
+          child: Row(
+            children: [
+              const Expanded(child: Text('For you')),
+              if (_feedTab == 'for_you')
+                const Iconify(Ph.heart_fill, size: 18, color: Colors.red),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: 'following',
+          child: Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Following',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              if (_feedTab == 'following') const Iconify(Ph.check, size: 18),
+            ],
+          ),
+        ),
+      ],
+    ).then((value) {
+      if (value == null) return;
+      setState(() => _feedTab = value);
+    });
+  }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  // Create/replace your story — pick photo OR video
+  /// Pick multiple media for ONE story, optional shared caption
   Future<void> _addStory() async {
     final List<XFile> files = await _storyPicker.pickMultipleMedia();
     if (files.isEmpty) return;
 
-    final XFile picked = files.first;
-    bool isVideoPath(String p) {
-      final s = p.toLowerCase();
-      return s.endsWith('.mp4') ||
-          s.endsWith('.mov') ||
-          s.endsWith('.m4v') ||
-          s.endsWith('.3gp') ||
-          s.endsWith('.webm') ||
-          s.endsWith('.mkv') ||
-          s.endsWith('.avi');
-    }
+    final text = await askStoryText(context);
 
-    Uint8List? thumb;
-    if (isVideoPath(picked.path)) {
-      try {
-        thumb = await VideoThumbnail.thumbnailData(
-          video: picked.path,
-          imageFormat: ImageFormat.PNG,
-          quality: 60,
-        );
-      } catch (_) {}
+    final List<StoryItem> items = [];
+    for (final f in files) {
+      final isVid = _isVideoPath(f.path);
+      Uint8List? thumb;
+      if (isVid) {
+        try {
+          thumb = await VideoThumbnail.thumbnailData(
+            video: f.path,
+            imageFormat: ImageFormat.PNG,
+            quality: 60,
+          );
+        } catch (_) {}
+      }
+      items.add(
+        StoryItem(
+          isVideo: isVid,
+          isLocal: true,
+          path: f.path,
+          thumbBytes: thumb,
+          caption: (text != null && text.isNotEmpty) ? text : null,
+        ),
+      );
     }
 
     setState(() {
       myStory = Story(
         id: 'my_${DateTime.now().millisecondsSinceEpoch}',
         name: 'Your story',
-        isVideo: isVideoPath(picked.path),
-        isLocal: true,
-        mediaPath: picked.path,
-        thumbByes: thumb,
+        items: items,
       );
     });
   }
 
-  void _openStory(Story s) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => StoryViewer(story: s)));
+  Future<String?> askStoryText(BuildContext context) async {
+    final ctrl = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Add text to your story'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Type something… (optional)',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Skip'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, ctrl.text.trim()),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
   }
 
+  void _openStory(Story s) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => StoryViewer(story: s)),
+    );
+  }
 
-
-
-  // ----- Posts -----
-
-
-
-  Future<void> _handleAddPost(BuildContext context) async {       
-    // Expect the shared model.Post from the uploader
+  /// ----- Posts -----
+  Future<void> _handleAddPost(BuildContext context) async {
     final model.Post? newPost = await Navigator.push<model.Post>(
       context,
       MaterialPageRoute(builder: (_) => const UploadPostPage()),
     );
     if (newPost == null) return;
 
-    // Map model.Post -> feed card type
     final _Post converted = _Post(
       id: newPost.id,
       username: newPost.authorName,
@@ -225,7 +263,9 @@ void _openFilterMenu(BuildContext context) {
       media: newPost.media.map((m) {
         final isNetwork = !m.isLocal;
         final path = m.isLocal ? m.file!.path : (m.url ?? '');
-        final type = (m.type == model.MediaType.image) ? MediaType.image : MediaType.video;
+        final type = (m.type == model.MediaType.image)
+            ? MediaType.image
+            : MediaType.video;
         return _FeedMedia(path: path, type: type, isNetwork: isNetwork);
       }).toList(),
       comments: <reply.Comment>[],
@@ -252,13 +292,10 @@ void _openFilterMenu(BuildContext context) {
           ),
         );
       }
-      
     }
 
     setState(() => _feedPosts.insert(0, converted));
   }
-
-
 
   String _formatCount(int count) {
     if (count < 1000) return count.toString();
@@ -275,13 +312,17 @@ void _openFilterMenu(BuildContext context) {
     final out = <reply.PostMedia>[];
     for (final m in items) {
       if (m.type == MediaType.image) {
-        out.add(m.isNetwork
-            ? reply.PostMedia.image(m.path)
-            : reply.PostMedia.imageFile(File(m.path)));
+        out.add(
+          m.isNetwork
+              ? reply.PostMedia.image(m.path)
+              : reply.PostMedia.imageFile(File(m.path)),
+        );
       } else {
-        out.add(m.isNetwork
-            ? reply.PostMedia.video(m.path)
-            : reply.PostMedia.videoFile(File(m.path)));
+        out.add(
+          m.isNetwork
+              ? reply.PostMedia.video(m.path)
+              : reply.PostMedia.videoFile(File(m.path)),
+        );
       }
     }
     return out;
@@ -324,32 +365,15 @@ void _openFilterMenu(BuildContext context) {
 
   @override
   Widget build(BuildContext context) {
-   
-   
-   
-    // choose image for your tile if you posted a photo; otherwise fallback
+    // my story cover
     final my = myStory;
-    ImageProvider? myProvider;
-    bool myIsVideo = false;
-    if (my != null) {
-      myIsVideo = my.isVideo;
-      if (my.isLocal && my.mediaPath != null) {
-        if (my.isVideo && my.thumbByes != null) {
-          myProvider = MemoryImage(my.thumbByes!);
-        } else {
-          myProvider = FileImage(File(my.mediaPath!));
-        }
-      } else if (!my.isLocal && my.coverUrl != null) {
-        myProvider = NetworkImage(my.coverUrl!);
-      } else {
-        myProvider = NetworkImage(_avatars.first);
-      }
-    } else {
-      myProvider = NetworkImage(_avatars.first);
-    }
+    final ImageProvider? myProvider = my?.coverImageProvider;
+    final bool myIsVideo = (my?.items.isNotEmpty ?? false)
+        ? my!.items.first.isVideo
+        : false;
 
     return Scaffold(
-      backgroundColor:  Colors.white,
+      backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0.8,
@@ -362,66 +386,56 @@ void _openFilterMenu(BuildContext context) {
             fontSize: 35,
           ),
         ),
-
-actions: [
-Padding(
-  padding: const EdgeInsets.only(right: 270),
-  child: InkWell(
-    borderRadius: BorderRadius.circular(30),
-    onTapDown: (details) => _tapPosition = details.globalPosition, // capture tap point
-    onTap: () => _openFilterMenu(context),                          // open popup
-    child: const Iconify(
-      Ph.equals_bold,
-      color: Color.fromARGB(221, 69, 69, 70),                             
-      size: 38,
-    ),
-  ),
-),
-
-          
-           Padding(
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 270),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(30),
+              onTapDown: (details) => _tapPosition = details.globalPosition,
+              onTap: () => _openFilterMenu(context),
+              child: const Iconify(
+                Ph.equals_bold,
+                color: Color.fromARGB(221, 69, 69, 70),
+                size: 38,
+              ),
+            ),
+          ),
+          Padding(
             padding: const EdgeInsets.only(right: 25),
             child: InkWell(
               borderRadius: BorderRadius.circular(30),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ActivityPage()),
-                );
-              },
-              child: const Iconify(Ph.heart_bold, color: Color.fromARGB(221, 100, 97, 97), size: 38),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ActivityPage()),
+              ),
+              child: const Iconify(
+                Ph.heart_bold,
+                color: Color.fromARGB(221, 100, 97, 97),
+                size: 38,
+              ),
             ),
           ),
-
-          
           Padding(
-            padding: const EdgeInsets.only(right:14),
+            padding: const EdgeInsets.only(right: 14),
             child: InkWell(
               borderRadius: BorderRadius.circular(30),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const lc.ChatListScreen()),
-                );
-                
-              },
-              
-              child: const Iconify(Fa.envelope, color: Color.fromARGB(221, 89, 96, 112), size: 28),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const lc.ChatListScreen()),
+              ),
+              child: const Iconify(
+                Fa.envelope,
+                color: Color.fromARGB(221, 89, 96, 112),
+                size: 28,
+              ),
             ),
           ),
         ],
       ),
 
-
-
-
       body: SafeArea(
         child: CustomScrollView(
           slivers: [
-            
-            
-            
-            
             // -------------------- Stories --------------------
             SliverToBoxAdapter(
               child: Container(
@@ -433,14 +447,15 @@ Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 30),
                     scrollDirection: Axis.horizontal,
                     itemBuilder: (_, i) {
-                      // First slot = Your story (single slot)
                       if (i == 0) {
                         return Column(
                           children: [
                             GestureDetector(
-                              onTap: () => my == null ? _addStory() : _openStory(my),
-                              child: _StoryRing.fromProvider(
-                                imageProvider: myProvider,
+                              onTap: () =>
+                                  my == null ? _addStory() : _openStory(my),
+                              child: StoryRing.fromProvider(
+                                imageProvider:
+                                    myProvider ?? NetworkImage(_avatars.first),
                                 isVideo: myIsVideo,
                                 showPlus: true,
                                 onPlusTap: _addStory,
@@ -460,26 +475,18 @@ Padding(
                         );
                       }
 
-                     
-                     
-                     
-                     
-                     
-                      // other users
                       final s = stories[(i - 1) % stories.length];
-                      final ImageProvider? imgProvider = s.isLocal
-                          ? (!s.isVideo && s.mediaPath != null
-                              ? FileImage(File(s.mediaPath!))
-                              : (s.thumbByes != null ? MemoryImage(s.thumbByes!) : null))
-                          : (s.coverUrl != null ? NetworkImage(s.coverUrl!) : null);
+                      final imgProvider =
+                          s.coverImageProvider ??
+                          NetworkImage(_avatars[(i - 1) % _avatars.length]);
 
                       return Column(
                         children: [
                           GestureDetector(
                             onTap: () => _openStory(s),
-                            child: _StoryRing.fromProvider(
+                            child: StoryRing.fromProvider(
                               imageProvider: imgProvider,
-                              isVideo: s.isVideo,
+                              isVideo: s.items.first.isVideo,
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -496,20 +503,17 @@ Padding(
                       );
                     },
                     separatorBuilder: (_, __) => const SizedBox(width: 22),
-                    itemCount: stories.length + 1, // +1 = Your story only
+                    itemCount: stories.length + 1,
                   ),
                 ),
               ),
             ),
             const SliverToBoxAdapter(child: SizedBox(height: 8)),
 
-            if (_feedPosts.isEmpty) const SliverToBoxAdapter(child: _EmptyFeed()),
+            if (_feedPosts.isEmpty)
+              const SliverToBoxAdapter(child: _EmptyFeed()),
 
-           
-
-
-           
-   // -------------------- Feed list --------------------
+            // -------------------- Feed --------------------
             SliverList(
               delegate: SliverChildBuilderDelegate(
                 (context, i) {
@@ -526,9 +530,11 @@ Padding(
                         post.isLiked ? post.likeCount++ : post.likeCount--;
                       });
                     },
-                    onShare: () => setState(() => post.isShared = !post.isShared),
+                    onShare: () =>
+                        setState(() => post.isShared = !post.isShared),
                     onRepost: () => setState(() => post.shareCount++),
                     formatCount: _formatCount,
+                    reels: _reels, // for popup "View Reel"
                   );
                 },
                 childCount: _feedPosts.isEmpty ? 0 : _feedPosts.length * 2 - 1,
@@ -539,14 +545,15 @@ Padding(
         ),
       ),
 
-      // Bottom bar
       bottomNavigationBar: _BottomBar(
         onAdd: () => _handleAddPost(context),
         onReels: _openReels,
         onProfile: () {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => const profile.ProfileUserScreen()),
+            MaterialPageRoute(
+              builder: (_) => const profile.ProfileUserScreen(),
+            ),
           );
         },
       ),
@@ -564,45 +571,54 @@ class _EmptyFeed extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 40),
       child: const Column(
         children: [
-          Iconify(Ph.paper_plane_tilt_bold, size: 58, color: Color.fromARGB(255, 76, 77, 82)),
+          Iconify(
+            Ph.paper_plane_tilt_bold,
+            size: 58,
+            color: Color.fromARGB(255, 76, 77, 82),
+          ),
           SizedBox(height: 16),
-          Text('No posts yet', style: TextStyle(fontSize: 18, color: Colors.grey)),
+          Text(
+            'No posts yet',
+            style: TextStyle(fontSize: 18, color: Colors.grey),
+          ),
           SizedBox(height: 8),
-          Text('Share your first post!', style: TextStyle(fontSize: 14, color: Colors.grey)),
+          Text(
+            'Share your first post!',
+            style: TextStyle(fontSize: 14, color: Colors.grey),
+          ),
         ],
       ),
     );
   }
 }
 
-
-/// ------------------------- Story Ring w/ Plus Badge -------------------------
-class _StoryRing extends StatelessWidget {
+/// ------------------------- Story Ring -------------------------
+class StoryRing extends StatelessWidget {
   final String? imageUrl;
   final bool showPlus;
-  final bool isVideo; // only for named ctor
+  final bool isVideo;
   final ImageProvider? _provider;
   final VoidCallback? onPlusTap;
 
-  const _StoryRing({
+  const StoryRing({
     Key? key,
     required String imageUrl,
     this.showPlus = false,
     this.onPlusTap,
-  })  : imageUrl = imageUrl,
-        isVideo = false,
-        _provider = null,
-        super(key: key);
+  }) : imageUrl = imageUrl,
+       isVideo = false,
+       _provider = null,
+       super(key: key);
 
-  const _StoryRing.fromProvider({
+  const StoryRing.fromProvider({
     Key? key,
     required ImageProvider? imageProvider,
     this.showPlus = false,
     this.isVideo = false,
     this.onPlusTap,
-  })  : imageUrl = null,
-        _provider = imageProvider,
-        super(key: key);
+  }) : imageUrl = null,
+       _provider = imageProvider,
+       super(key: key);
 
   ImageProvider? get provider {
     if (_provider != null) return _provider;
@@ -627,7 +643,10 @@ class _StoryRing extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(3),
             child: Container(
-              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
               padding: const EdgeInsets.all(3),
               child: CircleAvatar(
                 radius: 34,
@@ -653,9 +672,15 @@ class _StoryRing extends StatelessWidget {
                     color: const Color.fromARGB(255, 8, 8, 8),
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.white, width: 2),
-                    boxShadow: const [BoxShadow(blurRadius: 2, color: Colors.black26)],
+                    boxShadow: const [
+                      BoxShadow(blurRadius: 2, color: Colors.black26),
+                    ],
                   ),
-                  child: const Iconify(Ri.add_line, color: Colors.white, size: 16),
+                  child: const Iconify(
+                    Ri.add_line,
+                    color: Colors.white,
+                    size: 16,
+                  ),
                 ),
               ),
             ),
@@ -664,10 +689,6 @@ class _StoryRing extends StatelessWidget {
     );
   }
 }
-
-
-
-
 
 /// ------------------------- Comments Preview -------------------------
 class _CommentsPreview extends StatelessWidget {
@@ -708,18 +729,33 @@ class _CommentsPreview extends StatelessWidget {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      CircleAvatar(radius: 20, backgroundImage: _commentAvatar(c.avatar)),
+                      CircleAvatar(
+                        radius: 20,
+                        backgroundImage: _commentAvatar(c.avatar),
+                      ),
                       const SizedBox(width: 18),
                       Expanded(
                         child: RichText(
                           text: TextSpan(
-                            style: const TextStyle(fontSize: 13.5, color: Colors.black87, height: 2.0),
+                            style: const TextStyle(
+                              fontSize: 13.5,
+                              color: Colors.black87,
+                              height: 2.0,
+                            ),
                             children: [
-                              TextSpan(text: c.userName, style: const TextStyle(fontWeight: FontWeight.w700)),
+                              TextSpan(
+                                text: c.userName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                               const TextSpan(text: '  '),
                               TextSpan(
                                 text: c.time.isNotEmpty ? c.time : 'now',
-                                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
                               ),
                               const TextSpan(text: '\n'),
                               TextSpan(text: c.text),
@@ -756,7 +792,7 @@ class _CommentsPreview extends StatelessWidget {
                       IconButton(
                         icon: const Iconify(Ph.paper_plane_tilt_bold, size: 20),
                         onPressed: () {},
-                      )
+                      ),
                     ],
                   ),
                 ],
@@ -784,6 +820,7 @@ class _PostCard extends StatelessWidget {
   final VoidCallback onShare;
   final VoidCallback onRepost;
   final String Function(int) formatCount;
+  final List<ReelItem> reels;
 
   const _PostCard({
     required this.post,
@@ -792,6 +829,7 @@ class _PostCard extends StatelessWidget {
     required this.onShare,
     required this.onRepost,
     required this.formatCount,
+    required this.reels,
   });
 
   ImageProvider _avatarProvider(String avatar) {
@@ -808,10 +846,6 @@ class _PostCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          
-          
-          
-          
           // Header
           Padding(
             padding: const EdgeInsets.fromLTRB(38, 10, 12, 5),
@@ -827,8 +861,20 @@ class _PostCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(post.username, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
-                      Text(post.time, style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                      Text(
+                        post.username,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 18,
+                        ),
+                      ),
+                      Text(
+                        post.time,
+                        style: const TextStyle(
+                          color: Colors.black54,
+                          fontSize: 12,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -844,21 +890,30 @@ class _PostCard extends StatelessWidget {
           if (post.caption.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(100, 0, 12, 18),
-              child: Text(post.caption, style: const TextStyle(fontSize: 15, color: Colors.black87, height: 1.35)),
+              child: Text(
+                post.caption,
+                style: const TextStyle(
+                  fontSize: 15,
+                  color: Colors.black87,
+                  height: 1.35,
+                ),
+              ),
             ),
 
           // Media
-          if (post.media.isNotEmpty) _PostMedia(post: post),
+          if (post.media.isNotEmpty) _PostMedia(post: post, reels: reels),
 
-
-
-  // Actions
+          // Actions
           Padding(
             padding: const EdgeInsets.fromLTRB(88, 0, 18, 0),
             child: Row(
               children: [
                 IconButton(
-                  icon: Iconify(post.isLiked ? Ph.heart_fill : Ph.heart_bold, size: 24, color: post.isLiked ? Colors.red : null),
+                  icon: Iconify(
+                    post.isLiked ? Ph.heart_fill : Ph.heart_bold,
+                    size: 24,
+                    color: post.isLiked ? Colors.red : null,
+                  ),
                   onPressed: onLike,
                 ),
                 if (post.likeCount > 0)
@@ -866,42 +921,56 @@ class _PostCard extends StatelessWidget {
                     padding: const EdgeInsets.only(right: 16.0),
                     child: Text(
                       formatCount(post.likeCount),
-                      style: TextStyle(fontSize: 13, color: post.isLiked ? Colors.red : Colors.black54),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: post.isLiked ? Colors.red : Colors.black54,
+                      ),
                     ),
                   ),
-                IconButton(icon: const Iconify(Uil.comment, size: 24), onPressed: onOpenComments),
+                IconButton(
+                  icon: const Iconify(Uil.comment, size: 24),
+                  onPressed: onOpenComments,
+                ),
                 if (post.commentCount > 0)
                   Padding(
                     padding: const EdgeInsets.only(right: 16.0, left: 4),
-                    child: Text(formatCount(post.commentCount), style: const TextStyle(fontSize: 13)),
+                    child: Text(
+                      formatCount(post.commentCount),
+                      style: const TextStyle(fontSize: 13),
+                    ),
                   ),
-                IconButton(icon: const Iconify(Ph.shuffle_fill, size: 24), onPressed: onRepost),
+                IconButton(
+                  icon: const Iconify(Ph.shuffle_fill, size: 24),
+                  onPressed: onRepost,
+                ),
                 if (post.shareCount > 0)
                   Padding(
                     padding: const EdgeInsets.only(right: 16.0, left: 4),
-                    child: Text(formatCount(post.shareCount), style: const TextStyle(fontSize: 13)),
+                    child: Text(
+                      formatCount(post.shareCount),
+                      style: const TextStyle(fontSize: 13),
+                    ),
                   ),
-  IconButton(
- icon: Iconify(
-    post.isShared ? Ph.paper_plane_tilt_fill : Ph.paper_plane_tilt,
-    size: 24,
-    color: post.isShared ? Colors.blue : null,
-  ),
-  onPressed: () {
-    showPlaneSharePopup(
-      context,
-      shareLink: 'https://ifeed.app/p/${post.id}',
-      // targets: your real recipients if available
-    );
-  },
-),
-],
-  ),
-),
+                IconButton(
+                  icon: Iconify(
+                    post.isShared
+                        ? Ph.paper_plane_tilt_fill
+                        : Ph.paper_plane_tilt,
+                    size: 24,
+                    color: post.isShared ? Colors.blue : null,
+                  ),
+                  onPressed: () {
+                    showPlaneSharePopup(
+                      context,
+                      shareLink: 'https://ifeed.app/p/${post.id}',
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
 
-
-
-// Inline comments preview
+          // Inline comments preview
           if (post.comments.isNotEmpty)
             _CommentsPreview(
               comments: post.comments,
@@ -915,9 +984,6 @@ class _PostCard extends StatelessWidget {
   }
 }
 
-
-
-// Post menu  3 Dot
 void _showPostMenu(BuildContext context, _Post post) {
   showModalBottomSheet(
     context: context,
@@ -932,18 +998,46 @@ void _showPostMenu(BuildContext context, _Post post) {
             children: [
               _MenuSection(
                 children: [
-                  _MenuItem(iconify: MaterialSymbols.download_rounded, label: 'Save', onTap: () => Navigator.pop(context)),
-                  _MenuItem(iconify: MaterialSymbols.mark_email_unread_outline, label: 'Detail', onTap: () => Navigator.pop(context)),
+                  _MenuItem(
+                    iconify: MaterialSymbols.download_rounded,
+                    label: 'Save',
+                    onTap: () => Navigator.pop(context),
+                  ),
+                  _MenuItem(
+                    iconify: MaterialSymbols.mark_email_unread_outline,
+                    label: 'Detail',
+                    onTap: () => Navigator.pop(context),
+                  ),
                 ],
               ),
-              _MenuSection(children: [
-                _MenuItem(iconify: Ph.link_bold, label: 'Copy link', onTap: () => Navigator.pop(context)),
-              ]),
               _MenuSection(
                 children: [
-                  _MenuItem(iconify: Ph.bell, label: 'Mute', onTap: () => Navigator.pop(context)),
-                  _MenuItem(iconify: Ph.prohibit_inset_bold, label: 'Block', danger: true, onTap: () => Navigator.pop(context)),
-                  _MenuItem(iconify: Ph.trash_simple_bold, label: 'Delete', danger: true, onTap: () => Navigator.pop(context)),
+                  _MenuItem(
+                    iconify: Ph.link_bold,
+                    label: 'Copy link',
+                    onTap: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              _MenuSection(
+                children: [
+                  _MenuItem(
+                    iconify: Ph.bell,
+                    label: 'Mute',
+                    onTap: () => Navigator.pop(context),
+                  ),
+                  _MenuItem(
+                    iconify: Ph.prohibit_inset_bold,
+                    label: 'Block',
+                    danger: true,
+                    onTap: () => Navigator.pop(context),
+                  ),
+                  _MenuItem(
+                    iconify: Ph.trash_simple_bold,
+                    label: 'Delete',
+                    danger: true,
+                    onTap: () => Navigator.pop(context),
+                  ),
                 ],
               ),
             ],
@@ -953,7 +1047,6 @@ void _showPostMenu(BuildContext context, _Post post) {
     },
   );
 }
-
 
 class _MenuSection extends StatelessWidget {
   final List<_MenuItem> children;
@@ -975,7 +1068,11 @@ class _MenuSection extends StatelessWidget {
           return Column(
             children: [
               if (i != 0)
-                const Divider(height: 1, thickness: 0.7, color: Color(0xFFE5E7EB)),
+                const Divider(
+                  height: 1,
+                  thickness: 0.7,
+                  color: Color(0xFFE5E7EB),
+                ),
               ListTile(
                 leading: w.iconify != null
                     ? Iconify(w.iconify!, color: color, size: 24)
@@ -1012,8 +1109,6 @@ class _MenuItem {
   }) : assert(iconify != null || icon != null, 'Must provide iconify or icon');
 }
 
-
-
 /// ------------------------- Media helpers & layouts -------------------------
 enum CardAspect { auto, vertical, horizontal, square }
 
@@ -1032,7 +1127,8 @@ double? _forcedAspectFrom(CardAspect a) {
 
 class _PostMedia extends StatelessWidget {
   final _Post post;
-  const _PostMedia({required this.post});
+  final List<ReelItem> reels;
+  const _PostMedia({required this.post, required this.reels});
 
   static const double _side = 100.0;
   static const double _gap = 8;
@@ -1044,8 +1140,72 @@ class _PostMedia extends StatelessWidget {
       PageRouteBuilder(
         opaque: false,
         barrierColor: Colors.black,
-        pageBuilder: (_, __, ___) => _MediaViewer(items: post.media, initialIndex: startIndex),
+        pageBuilder: (_, __, ___) =>
+            _MediaViewer(items: post.media, initialIndex: startIndex),
       ),
+    );
+  }
+
+  void _showVideoSheet({
+    required BuildContext context,
+    required _FeedMedia media,
+    required VoidCallback onFullscreen,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Iconify(Ri.youtube_line, size: 24),
+                title: const Text('View Reel'),
+                onTap: () {
+                  Navigator.pop(context);
+                  // Open ReelsPage with this single item (simple & robust)
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ReelsPage(
+                        items: [
+                          ReelItem(
+                            id: DateTime.now().millisecondsSinceEpoch
+                                .toString(),
+                            videoUrl: media.isNetwork
+                                ? media.path
+                                : 'file://${media.path}',
+                            caption: 'Reel',
+                            music: 'Original Audio',
+                            avatarUrl: 'https://i.pravatar.cc/150?img=68',
+                            authorName: 'sinayun_xyn',
+                            likes: 0,
+                            comments: 0,
+                          ),
+                        ],
+                        initialIndex: 0,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Iconify(MaterialSymbols.fullscreen, size: 24),
+                title: const Text('View Fullscreen'),
+                onTap: () {
+                  Navigator.pop(context);
+                  onFullscreen();
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -1053,74 +1213,121 @@ class _PostMedia extends StatelessWidget {
   Widget build(BuildContext context) {
     final forcedAspect = _forcedAspectFrom(post.aspect);
 
-    return LayoutBuilder(builder: (context, c) {
-      final baseAspect = forcedAspect ?? 9 / 12;
-      final contentW = c.maxWidth - _side * 2;
-      final naturalH = contentW / baseAspect;
-      final maxH = MediaQuery.of(context).size.height * _maxScreenFraction;
-      final h = naturalH.clamp(_minH, maxH);
+    return LayoutBuilder(
+      builder: (context, c) {
+        final baseAspect = forcedAspect ?? 9 / 12;
+        final contentW = c.maxWidth - _side * 2;
+        final naturalH = contentW / baseAspect;
+        final maxH = MediaQuery.of(context).size.height * _maxScreenFraction;
+        final h = naturalH.clamp(_minH, maxH);
 
-      if (post.media.length == 1) {
-        final m = post.media.first;
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: _side),
-          child: SizedBox(
-            height: h,
-            child: _RoundedTile(m: m, aspect: baseAspect, onTap: () => _openViewerPaged(context, 0)),
-          ),
-        );
-      }
-
-
-
-
-// Correct: 2 tiles layout               
-      if (post.media.length == 1) {
-        const aspect2 = 9 / 12;
-        final perTileW = (contentW - _gap) / 2;
-        final rowH = (perTileW / aspect2).clamp(_minH, maxH);
-
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: _side),
-          child: SizedBox(
-            height: rowH,
-            child: Row(
-              children: [
-                Expanded(child: _RoundedTile(m: post.media[0], aspect: aspect2, onTap: () => _openViewerPaged(context, 0))),
-                const SizedBox(width: _gap),
-                Expanded(child: _RoundedTile(m: post.media[1], aspect: aspect2, onTap: () => _openViewerPaged(context, 1))),
-              ],
+        if (post.media.length == 1) {
+          final m = post.media.first;
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: _side),
+            child: SizedBox(
+              height: h,
+              child: _RoundedTile(
+                m: m,
+                aspect: baseAspect,
+                onTap: () => _openViewerPaged(context, 0),
+                onVideoTap: () => _showVideoSheet(
+                  context: context,
+                  media: m,
+                  onFullscreen: () => _openViewerPaged(context, 0),
+                ),
+              ),
             ),
+          );
+        }
+
+        // 2 tiles layout
+        if (post.media.length == 1) {
+          const aspect2 = 9 / 12;
+          final perTileW = (contentW - _gap) / 2;
+          final rowH = (perTileW / aspect2).clamp(_minH, maxH);
+
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: _side),
+            child: SizedBox(
+              height: rowH,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _RoundedTile(
+                      m: post.media[0],
+                      aspect: aspect2,
+                      onTap: () => _openViewerPaged(context, 0),
+                      onVideoTap: () => _showVideoSheet(
+                        context: context,
+                        media: post.media[0],
+                        onFullscreen: () => _openViewerPaged(context, 0),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: _gap),
+                  Expanded(
+                    child: _RoundedTile(
+                      m: post.media[1],
+                      aspect: aspect2,
+                      onTap: () => _openViewerPaged(context, 1),
+                      onVideoTap: () => _showVideoSheet(
+                        context: context,
+                        media: post.media[1],
+                        onFullscreen: () => _openViewerPaged(context, 1),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        // horizontal scroller (3+)
+        return SizedBox(
+          height: h,
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: _side),
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            itemCount: post.media.length,
+            separatorBuilder: (_, __) => const SizedBox(width: _gap),
+            itemBuilder: (_, i) {
+              final m = post.media[i];
+              return SizedBox(
+                width: h * baseAspect,
+                child: _RoundedTile(
+                  m: m,
+                  aspect: baseAspect,
+                  onTap: () => _openViewerPaged(context, i),
+                  onVideoTap: () => _showVideoSheet(
+                    context: context,
+                    media: m,
+                    onFullscreen: () => _openViewerPaged(context, i),
+                  ),
+                ),
+              );
+            },
           ),
         );
-      }
-
-      return SizedBox(
-        height: h,
-        child: ListView.separated(
-          padding: const EdgeInsets.symmetric(horizontal: _side),
-          scrollDirection: Axis.horizontal,
-          physics: const BouncingScrollPhysics(),
-          itemCount: post.media.length,
-          separatorBuilder: (_, __) => const SizedBox(width: _gap),
-          itemBuilder: (_, i) {
-            final m = post.media[i];
-            return SizedBox(
-              width: h * baseAspect,
-              child: _RoundedTile(m: m, aspect: baseAspect, onTap: () => _openViewerPaged(context, i)),
-            );
-          },
-        ),
-      );
-    });
+      },
+    );
   }
 }
 
 class _RoundedTile extends StatelessWidget {
   final _FeedMedia m;
   final double aspect;
-  final VoidCallback? onTap;
-  const _RoundedTile({required this.m, required this.aspect, this.onTap});
+  final VoidCallback? onTap; // open fullscreen viewer
+  final VoidCallback? onVideoTap; // open popup for video
+
+  const _RoundedTile({
+    required this.m,
+    required this.aspect,
+    this.onTap,
+    this.onVideoTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1129,11 +1336,19 @@ class _RoundedTile extends StatelessWidget {
       child: Material(
         color: Colors.black12,
         child: InkWell(
-          onTap: onTap,
+          onTap: () {
+            if (m.type == MediaType.video) {
+              if (onVideoTap != null) onVideoTap!();
+            } else {
+              if (onTap != null) onTap!();
+            }
+          },
           child: AspectRatio(
             aspectRatio: aspect,
             child: (m.type == MediaType.image)
-                ? (m.isNetwork ? Image.network(m.path, fit: BoxFit.cover) : Image.file(File(m.path), fit: BoxFit.cover))
+                ? (m.isNetwork
+                      ? Image.network(m.path, fit: BoxFit.cover)
+                      : Image.file(File(m.path), fit: BoxFit.cover))
                 : _CoverVideo(path: m.path, isNetwork: m.isNetwork),
           ),
         ),
@@ -1148,7 +1363,9 @@ class FillMedia extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (m.type == MediaType.image) {
-      return m.isNetwork ? Image.network(m.path, fit: BoxFit.contain) : Image.file(File(m.path), fit: BoxFit.contain);
+      return m.isNetwork
+          ? Image.network(m.path, fit: BoxFit.contain)
+          : Image.file(File(m.path), fit: BoxFit.contain);
     }
     return _CoverVideo(path: m.path, isNetwork: m.isNetwork);
   }
@@ -1203,15 +1420,28 @@ class _CoverVideoState extends State<_CoverVideo> {
           child: _ready
               ? FittedBox(
                   fit: BoxFit.cover,
-                  child: SizedBox(width: _c!.value.size.width, height: _c!.value.size.height, child: VideoPlayer(_c!)),
+                  child: SizedBox(
+                    width: _c!.value.size.width,
+                    height: _c!.value.size.height,
+                    child: VideoPlayer(_c!),
+                  ),
                 )
-              : const ColoredBox(color: Colors.black12, child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
+              : const ColoredBox(
+                  color: Colors.black12,
+                  child: Center(
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
         ),
         const Positioned.fill(
           child: IgnorePointer(
             child: DecoratedBox(
               decoration: BoxDecoration(
-                gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter, colors: [Colors.black26, Colors.transparent]),
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  colors: [Colors.black26, Colors.transparent],
+                ),
               ),
             ),
           ),
@@ -1225,7 +1455,11 @@ class _CoverVideoState extends State<_CoverVideo> {
                 child: AnimatedOpacity(
                   opacity: _playing ? 0.0 : 1.0,
                   duration: const Duration(milliseconds: 150),
-                  child: const Iconify(MaterialSymbols.play_circle, size: 56, color: Colors.white),  // Video Play icon 
+                  child: const Iconify(
+                    MaterialSymbols.play_circle,
+                    size: 56,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ),
@@ -1278,7 +1512,10 @@ class _MediaViewerState extends State<_MediaViewer> {
             Positioned(
               top: 8,
               left: 8,
-              child: IconButton(icon: const Iconify(MaterialSymbols.close, color: Colors.white), onPressed: () => Navigator.pop(context)), // after post close 
+              child: IconButton(
+                icon: const Iconify(MaterialSymbols.close, color: Colors.white),
+                onPressed: () => Navigator.pop(context),
+              ),
             ),
             Positioned(
               bottom: 18,
@@ -1286,9 +1523,18 @@ class _MediaViewerState extends State<_MediaViewer> {
               right: 0,
               child: Center(
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(20)),
-                  child: Text('${_index + 1}/${widget.items.length}', style: const TextStyle(color: Colors.white, fontSize: 13)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${_index + 1}/${widget.items.length}',
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                  ),
                 ),
               ),
             ),
@@ -1310,12 +1556,17 @@ class _ViewerPage extends StatelessWidget {
         child: InteractiveViewer(
           minScale: 1,
           maxScale: 4,
-          child: item.isNetwork ? Image.network(item.path, fit: BoxFit.contain) : Image.file(File(item.path), fit: BoxFit.contain),
+          child: item.isNetwork
+              ? Image.network(item.path, fit: BoxFit.contain)
+              : Image.file(File(item.path), fit: BoxFit.contain),
         ),
-      );  
+      );
     }
     return Center(
-      child: AspectRatio(aspectRatio: 14 / 9, child: _CoverVideo(path: item.path, isNetwork: item.isNetwork)),
+      child: AspectRatio(
+        aspectRatio: 14 / 9,
+        child: _CoverVideo(path: item.path, isNetwork: item.isNetwork),
+      ),
     );
   }
 }
@@ -1338,7 +1589,9 @@ class _BottomBar extends StatelessWidget {
       height: 68,
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(top: BorderSide(color: Color.fromARGB(255, 255, 255, 255))),
+        border: Border(
+          top: BorderSide(color: Color.fromARGB(255, 255, 255, 255)),
+        ),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -1349,7 +1602,9 @@ class _BottomBar extends StatelessWidget {
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const FollowSuggestionsPage()),
+                MaterialPageRoute(
+                  builder: (_) => const FollowSuggestionsPage(),
+                ),
               );
             },
           ),
@@ -1372,8 +1627,14 @@ class _AddButton extends StatelessWidget {
       child: Container(
         width: 50,
         height: 40,
-        decoration: BoxDecoration(color: Colors.grey, borderRadius: BorderRadius.circular(10)),
-        child: const Iconify(Teenyicons.add_small_outline, color: Color.fromARGB(255, 112, 111, 111)),
+        decoration: BoxDecoration(
+          color: Colors.grey,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Iconify(
+          Teenyicons.add_small_outline,
+          color: Color.fromARGB(255, 112, 111, 111),
+        ),
       ),
     );
   }
@@ -1386,10 +1647,16 @@ class _BarIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(onPressed: onTap, icon: Iconify(icon, color: const Color.fromARGB(221, 87, 86, 86), size: 30));  // Baricon 
+    return IconButton(
+      onPressed: onTap,
+      icon: Iconify(
+        icon,
+        color: const Color.fromARGB(221, 87, 86, 86),
+        size: 30,
+      ),
+    );
   }
 }
-
 
 /// ======================= UPLOAD PAGE =======================
 class UploadPostPage extends StatefulWidget {
@@ -1408,11 +1675,12 @@ class _UploadPostPageState extends State<UploadPostPage> {
 
   Future<void> _pickImage() async {
     final x = await _picker.pickImage(source: ImageSource.gallery);
-    if (x != null) setState(() => _media.add(PickedMedia(File(x.path), MediaType.image)));
+    if (x != null)
+      setState(() => _media.add(PickedMedia(File(x.path), MediaType.image)));
   }
 
   Future<void> _pickMultipleMedia() async {
-    final files = await _picker.pickMultipleMedia(); // images & videos
+    final files = await _picker.pickMultipleMedia();
     if (files.isEmpty) return;
 
     bool isVideoPath(String p) {
@@ -1454,31 +1722,61 @@ class _UploadPostPageState extends State<UploadPostPage> {
             SliverToBoxAdapter(
               child: Container(
                 padding: const EdgeInsets.fromLTRB(16, 48, 16, 12),
-                decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFFEFEFEF)))),
+                decoration: const BoxDecoration(
+                  border: Border(bottom: BorderSide(color: Color(0xFFEFEFEF))),
+                ),
                 child: const Center(
-                  child: Text('', style: TextStyle(color: Color(0xFF22C55E), fontWeight: FontWeight.w800, fontSize: 30)), // Ifeed
+                  child: Text(
+                    '',
+                    style: TextStyle(
+                      color: Color(0xFF22C55E),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 30,
+                    ),
+                  ),
                 ),
               ),
             ),
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 19, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 19,
+                  vertical: 8,
+                ),
                 child: Column(
                   children: [
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Cancel'),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 2),
                     const Row(
                       children: [
-                        CircleAvatar(radius: 25, backgroundImage: NetworkImage('')),
+                        CircleAvatar(
+                          radius: 25,
+                          backgroundImage: NetworkImage(''),
+                        ),
                         SizedBox(width: 15),
-                        Text('sinayun_xyn', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 18)),
+                        Text(
+                          'sinayun_xyn',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w500,
+                            fontSize: 18,
+                          ),
+                        ),
                         Spacer(),
-                        Text('Share a new iFeed', style: TextStyle(color: Color.fromARGB(137, 7, 7, 7), fontSize: 18)),
+                        Text(
+                          'Share a new iFeed',
+                          style: TextStyle(
+                            color: Color.fromARGB(137, 7, 7, 7),
+                            fontSize: 18,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 15),
@@ -1489,45 +1787,80 @@ class _UploadPostPageState extends State<UploadPostPage> {
                       decoration: InputDecoration(
                         hintText: 'Write something ...',
                         isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 19, vertical: 12),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 19,
+                          vertical: 12,
+                        ),
                         border: border,
                         enabledBorder: border,
-                        focusedBorder: border.copyWith(borderSide: const BorderSide(color: Color.fromARGB(255, 17, 21, 223))),
+                        focusedBorder: border.copyWith(
+                          borderSide: const BorderSide(
+                            color: Color.fromARGB(255, 17, 21, 223),
+                          ),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 12),
                     Row(
                       children: [
-                        IconButton(tooltip: 'Media', onPressed: _pickMultipleMedia, icon: const Iconify(Tabler.photo_plus, color: Colors.blue)),
-                        IconButton(tooltip: 'Camera (demo)', onPressed: _pickImage, icon: const Iconify(Ph.camera)),
+                        IconButton(
+                          tooltip: 'Media',
+                          onPressed: _pickMultipleMedia,
+                          icon: const Iconify(
+                            Tabler.photo_plus,
+                            color: Colors.blue,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Camera (demo)',
+                          onPressed: _pickImage,
+                          icon: const Iconify(Ph.camera),
+                        ),
                         IconButton(
                           tooltip: 'Location',
-                          onPressed: () => setState(() => _location = _location == null ? 'Phnom Penh' : null),
-                          icon: const Iconify(MaterialSymbols.add_location_alt, color: Colors.black54),
+                          onPressed: () => setState(
+                            () => _location = _location == null
+                                ? 'Phnom Penh'
+                                : null,
+                          ),
+                          icon: const Iconify(
+                            MaterialSymbols.add_location_alt,
+                            color: Colors.black54,
+                          ),
                         ),
                       ],
                     ),
-                    if (_media.isNotEmpty) _PreviewWrap(media: _media, onRemove: (i) => setState(() => _media.removeAt(i))),
+                    if (_media.isNotEmpty)
+                      _PreviewWrap(
+                        media: _media,
+                        onRemove: (i) => setState(() => _media.removeAt(i)),
+                      ),
                     const SizedBox(height: 400),
                     Row(
                       children: [
-                        const Text('Add a caption', style: TextStyle(color: Colors.black54)),
+                        const Text(
+                          'Add a caption',
+                          style: TextStyle(color: Colors.black54),
+                        ),
                         const Spacer(),
                         FilledButton(
                           onPressed: _canPost
                               ? () {
-                                  // Convert PickedMedia -> model.PostMedia
-                                  final List<model.PostMedia> normalized = _media.map<model.PostMedia>((pm) {
-                                    return pm.type == MediaType.video
-                                        ? model.PostMedia.videoFile(pm.file)
-                                        : model.PostMedia.imageFile(pm.file);
-                                  }).toList();
+                                  final List<model.PostMedia> normalized =
+                                      _media.map<model.PostMedia>((pm) {
+                                        return pm.type == MediaType.video
+                                            ? model.PostMedia.videoFile(pm.file)
+                                            : model.PostMedia.imageFile(
+                                                pm.file,
+                                              );
+                                      }).toList();
 
-                                  // Build shared Post and pop it
                                   final result = model.Post(
-                                    id: DateTime.now().millisecondsSinceEpoch.toString(),
+                                    id: DateTime.now().millisecondsSinceEpoch
+                                        .toString(),
                                     authorName: 'sinayun_xyn',
-                                    authorAvatar: 'https://i.pravatar.cc/150?img=68',
+                                    authorAvatar:
+                                        'https://i.pravatar.cc/150?img=68',
                                     timeText: 'just now',
                                     caption: _text.text.trim(),
                                     media: normalized,
@@ -1551,9 +1884,6 @@ class _UploadPostPageState extends State<UploadPostPage> {
     );
   }
 }
-
-
-
 
 /// ======================= UPLOAD-SCOPE MODELS =======================
 enum MediaType { image, video }
@@ -1624,52 +1954,61 @@ class _PreviewWrap extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, c) {
-      const gap = 10.0;
-      final maxW = c.maxWidth;
-      final itemW = media.length == 1 ? maxW : (maxW - gap) / 2;
+    return LayoutBuilder(
+      builder: (context, c) {
+        const gap = 10.0;
+        final maxW = c.maxWidth;
+        final itemW = media.length == 1 ? maxW : (maxW - gap) / 2;
 
-      return Wrap(
-        spacing: gap,
-        runSpacing: gap,
-        children: List.generate(media.length, (i) {
-          final m = media[i];
-          final aspect = m.type == MediaType.image ? 9 / 16 : 4 / 5;
-          return Stack(
-            children: [
-              SizedBox(
-                width: itemW,
-                child: AspectRatio(
-                  aspectRatio: aspect,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: m.type == MediaType.image
-                        ? Image.file(m.file, fit: BoxFit.cover)
-                        : const ColoredBox(color: Colors.black12),
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: List.generate(media.length, (i) {
+            final m = media[i];
+            final aspect = m.type == MediaType.image ? 9 / 16 : 4 / 5;
+            return Stack(
+              children: [
+                SizedBox(
+                  width: itemW,
+                  child: AspectRatio(
+                    aspectRatio: aspect,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: m.type == MediaType.image
+                          ? Image.file(m.file, fit: BoxFit.cover)
+                          : const ColoredBox(color: Colors.black12),
+                    ),
                   ),
                 ),
-              ),
-              Positioned(
-                top: 6,
-                right: 6,
-                child: InkWell(
-                  onTap: () => onRemove(i),
-                  child: Container(
-                    decoration: BoxDecoration(color: const Color.fromARGB(255, 211, 211, 211), borderRadius: BorderRadius.circular(20)),
-                    padding: const EdgeInsets.all(3),
-                    child: const Iconify(MaterialSymbols.close, color: Color.fromARGB(255, 71, 71, 71), size: 26),
+                Positioned(
+                  top: 6,
+                  right: 6,
+                  child: InkWell(
+                    onTap: () => onRemove(i),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: const Color.fromARGB(255, 211, 211, 211),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      padding: const EdgeInsets.all(3),
+                      child: const Iconify(
+                        MaterialSymbols.close,
+                        color: Color.fromARGB(255, 71, 71, 71),
+                        size: 26,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ],
-          );
-        }),
-      );
-    });
+              ],
+            );
+          }),
+        );
+      },
+    );
   }
 }
 
-/// ======================= STORY VIEWER =======================
+/// ======================= STORY VIEWER (multi-item) =======================
 class StoryViewer extends StatefulWidget {
   const StoryViewer({super.key, required this.story});
   final Story story;
@@ -1679,55 +2018,203 @@ class StoryViewer extends StatefulWidget {
 }
 
 class _StoryViewerState extends State<StoryViewer> {
-  VideoPlayerController? _vc;
+  late final PageController _pc;
+  int _index = 0;
 
   @override
   void initState() {
     super.initState();
-    final s = widget.story;
-    if (s.isVideo && s.isLocal && s.mediaPath != null) {
-      _vc = VideoPlayerController.file(File(s.mediaPath!))
-        ..setLooping(true)
-        ..initialize().then((_) {
-          if (!mounted) return;
-          setState(() {});
-          _vc?.play();
-        });
-    }
+    _pc = PageController();
   }
 
   @override
   void dispose() {
-    _vc?.dispose();
+    _pc.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final s = widget.story;
+    final items = widget.story.items;
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          Center(
-            child: s.isVideo
-                ? (_vc != null && _vc!.value.isInitialized)
-                    ? AspectRatio(aspectRatio: _vc!.value.aspectRatio, child: VideoPlayer(_vc!))
-                    : const SizedBox.shrink()
-                : s.isLocal && s.mediaPath != null
-                    ? Image.file(File(s.mediaPath!), fit: BoxFit.contain)
-                    : (s.coverUrl != null ? Image.network(s.coverUrl!, fit: BoxFit.contain) : const SizedBox.shrink()),
-          ),
-          SafeArea(
-            child: Row(
-              children: [
-                IconButton(icon: const Iconify(MaterialSymbols.close, color: Colors.white), onPressed: () => Navigator.pop(context)), //Story close
-                Text(s.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-              ],
+      body: SafeArea(
+        child: Stack(
+          children: [
+            PageView.builder(
+              controller: _pc,
+              itemCount: items.length,
+              onPageChanged: (i) => setState(() => _index = i),
+              itemBuilder: (_, i) => _StorySlide(item: items[i]),
+            ),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Iconify(
+                        MaterialSymbols.close,
+                        color: Colors.white,
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                    Text(
+                      widget.story.name,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        '${_index + 1}/${items.length}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StorySlide extends StatefulWidget {
+  const _StorySlide({required this.item});
+  final StoryItem item;
+
+  @override
+  State<_StorySlide> createState() => _StorySlideState();
+}
+
+class _StorySlideState extends State<_StorySlide> {
+  VideoPlayerController? _vc;
+  bool _ready = false;
+  bool _playing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final it = widget.item;
+    if (it.isVideo) {
+      _vc = it.isLocal
+          ? VideoPlayerController.file(File(it.path!))
+          : VideoPlayerController.networkUrl(Uri.parse(it.url!));
+      _vc!.setLooping(true);
+      _vc!.initialize().then((_) {
+        if (!mounted) return;
+        setState(() => _ready = true);
+        _vc!.play();
+        _playing = true;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _vc?.pause();
+    _vc?.dispose();
+    super.dispose();
+  }
+
+  void _toggle() {
+    if (!_ready || _vc == null) return;
+    setState(() {
+      _playing = !_playing;
+      _playing ? _vc!.play() : _vc!.pause();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final it = widget.item;
+
+    Widget content;
+    if (it.isVideo) {
+      content = _ready
+          ? FittedBox(
+              fit: BoxFit.contain,
+              child: SizedBox(
+                width: _vc!.value.size.width,
+                height: _vc!.value.size.height,
+                child: VideoPlayer(_vc!),
+              ),
+            )
+          : const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    } else {
+      final provider = it.isLocal
+          ? (it.path != null
+                ? FileImage(File(it.path!)) as ImageProvider?
+                : null)
+          : (it.url != null ? NetworkImage(it.url!) as ImageProvider? : null);
+      content = provider != null
+          ? Image(
+              image: provider,
+              fit: BoxFit.contain,
+              width: double.infinity,
+              height: double.infinity,
+            )
+          : const SizedBox.shrink();
+    }
+
+    return Stack(
+      children: [
+        Positioned.fill(child: content),
+        if (it.isVideo)
+          Positioned.fill(
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: _toggle,
+                child: Center(
+                  child: AnimatedOpacity(
+                    opacity: _playing ? 0.0 : 1.0,
+                    duration: const Duration(milliseconds: 150),
+                    child: const Iconify(
+                      MaterialSymbols.play_circle,
+                      size: 64,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
-        ],
-      ),
+        if (it.caption != null && it.caption!.isNotEmpty)
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 28,
+            child: Text(
+              it.caption!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
