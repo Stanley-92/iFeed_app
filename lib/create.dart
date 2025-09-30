@@ -273,7 +273,7 @@ class _CreateScreenState extends State<CreateScreen> {
                     color: Colors.white,
                   ),
                 ),
-
+                const SizedBox(height: 20),
                 // Google button
                 OutlinedButton.icon(
                   onPressed: _loading ? null : _handleGoogle,
@@ -296,7 +296,7 @@ class _CreateScreenState extends State<CreateScreen> {
                   ),
                 ),
 
-                const SizedBox(height: 22),
+                const SizedBox(height: 48),
 
                 // Inner form card
                 Container(
