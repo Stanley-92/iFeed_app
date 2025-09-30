@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:iconify_flutter/iconify_flutter.dart';
+import 'package:iconify_flutter/icons/uil.dart';
 
 import 'create.dart';
 import 'Mainfeed.dart';
@@ -27,43 +29,61 @@ class _LoginScreenState extends State<LoginScreen> {
   // Optional: ensure a user doc exists after login
   Future<void> _upsertUserDoc(User user) async {
     await _db.collection('users').doc(user.uid).set({
-      'uid'        : user.uid,
-      'email'      : user.email,
+      'uid': user.uid,
+      'email': user.email,
       'displayName': user.displayName,
-      'photoURL'   : user.photoURL,
+      'photoURL': user.photoURL,
       'providerIds': user.providerData.map((p) => p.providerId).toList(),
-      'updatedAt'  : FieldValue.serverTimestamp(),
-      'createdAt'  : FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'createdAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
 
   Future<void> _loginWithEmail() async {
     final email = _email.text.trim();
-    final pass  = _password.text;
+    final pass = _password.text;
 
     if (email.isEmpty || pass.isEmpty) {
       setState(() => _error = 'Please fill in both email and password.');
       return;
     }
 
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
 
     try {
-      final cred = await _auth.signInWithEmailAndPassword(email: email, password: pass);
+      final cred = await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: pass,
+      );
       final user = cred.user;
       if (user != null) {
         await _upsertUserDoc(user); // safe no-op if doc exists
         if (!mounted) return;
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainfeedScreen()));
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const MainfeedScreen()),
+        );
       }
     } on FirebaseAuthException catch (e) {
       String msg;
       switch (e.code) {
-        case 'user-not-found':    msg = 'No account found for that email.'; break;
-        case 'wrong-password':    msg = 'Incorrect password.'; break;
-        case 'invalid-email':     msg = 'Invalid email format.'; break;
-        case 'user-disabled':     msg = 'This user has been disabled.'; break;
-        default:                  msg = e.message ?? e.code;
+        case 'user-not-found':
+          msg = 'No account found for that email.';
+          break;
+        case 'wrong-password':
+          msg = 'Incorrect password.';
+          break;
+        case 'invalid-email':
+          msg = 'Invalid email format.';
+          break;
+        case 'user-disabled':
+          msg = 'This user has been disabled.';
+          break;
+        default:
+          msg = e.message ?? e.code;
       }
       setState(() => _error = msg);
     } catch (e) {
@@ -74,7 +94,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> loginWithGoogle() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final googleUser = await GoogleSignIn().signIn();
       if (googleUser == null) {
@@ -92,7 +115,10 @@ class _LoginScreenState extends State<LoginScreen> {
       if (user != null) {
         await _upsertUserDoc(user);
         if (!mounted) return;
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainfeedScreen()));
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const MainfeedScreen()),
+        );
       }
     } on FirebaseAuthException catch (e) {
       setState(() => _error = e.message ?? e.code);
@@ -109,12 +135,17 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _error = 'Enter your email to reset your password.');
       return;
     }
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       await _auth.sendPasswordResetEmail(email: email);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Password reset email sent. Check your inbox.')),
+        const SnackBar(
+          content: Text('Password reset email sent. Check your inbox.'),
+        ),
       );
     } on FirebaseAuthException catch (e) {
       setState(() => _error = e.message ?? e.code);
@@ -140,19 +171,40 @@ class _LoginScreenState extends State<LoginScreen> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 420),
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text('iFeed',
-                  style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: Colors.green[500]),
-                ),
-                const SizedBox(height: 28),
+              mainAxisAlignment: MainAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
 
+              // Logo App
+              children: [
+                const SizedBox(height: 80),
+
+                Container(
+                  padding: const EdgeInsets.all(15),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.rectangle,
+                    borderRadius: BorderRadius.circular(12),
+                    color: const Color.fromARGB(255, 36, 231, 19),
+                    border: Border.all(
+                      color: const Color.fromARGB(255, 36, 231, 19),
+                      width: 2,
+                    ),
+                  ),
+                  child: const Iconify(
+                    Uil.comment,
+                    size: 38,
+                    color: Colors.white,
+                  ),
+                ),
+
+                const SizedBox(height: 48),
                 TextField(
                   controller: _email,
                   keyboardType: TextInputType.emailAddress,
                   decoration: InputDecoration(
                     labelText: 'Email/Phone',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -162,7 +214,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   obscureText: true,
                   decoration: InputDecoration(
                     labelText: 'Password',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -172,7 +226,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   height: 48,
                   child: ElevatedButton(
                     onPressed: _loading ? null : _loginWithEmail,
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                    ),
                     child: Text(_loading ? 'Signing in…' : 'Login'),
                   ),
                 ),
@@ -189,9 +245,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 const Divider(),
                 const SizedBox(height: 8),
 
-            
-
-
                 const SizedBox(height: 16),
 
                 SizedBox(
@@ -200,8 +253,15 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: ElevatedButton(
                     onPressed: _loading
                         ? null
-                        : () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateScreen())),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                        : () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const CreateScreen(),
+                            ),
+                          ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                    ),
                     child: const Text('Create Account'),
                   ),
                 ),
