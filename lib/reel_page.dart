@@ -1,5 +1,6 @@
 // reel_page.dart
 import 'dart:async';
+import 'dart:io'; // 👈 for File playback (file://)
 import 'package:flutter/material.dart';
 import 'package:iconify_flutter/iconify_flutter.dart';
 import 'package:iconify_flutter/icons/material_symbols.dart';
@@ -13,7 +14,7 @@ import 'package:visibility_detector/visibility_detector.dart';
 /// --------------------------- MODEL ---------------------------
 class ReelItem {
   final String id;
-  final String videoUrl;
+  final String videoUrl; // supports https:// and file://
   final String caption;
   final String music;
   final String avatarUrl;
@@ -37,8 +38,14 @@ class ReelItem {
 
 /// --------------------------- PAGE ---------------------------
 class ReelsPage extends StatefulWidget {
-  const ReelsPage({super.key, this.items});
+  const ReelsPage({
+    super.key,
+    this.items,
+    this.initialIndex = 0, // 👈 new
+  });
+
   final List<ReelItem>? items;
+  final int initialIndex;
 
   @override
   State<ReelsPage> createState() => _ReelsPageState();
@@ -50,7 +57,7 @@ class _ReelsPageState extends State<ReelsPage> {
 
   /// We keep controllers per-page index.
   final Map<int, VideoPlayerController> _controllers = {};
-  int _currentIndex = 0;
+  late int _currentIndex; // 👈 start at initialIndex
   bool _muted = true;
   bool _heartBurst = false;
 
@@ -58,16 +65,19 @@ class _ReelsPageState extends State<ReelsPage> {
   void initState() {
     super.initState();
     _items = widget.items ?? _demoItems;
-    _pageController = PageController();
+    _currentIndex = widget.initialIndex.clamp(
+      0,
+      (_items.length - 1).clamp(0, _items.length),
+    ); // safety
+    _pageController = PageController(initialPage: _currentIndex);
 
-    // Prepare first and preload next
-    _initControllerFor(0);
-    if (_items.length > 1) _initControllerFor(1);
+    // Prepare current and preload neighbors
+    _initControllerFor(_currentIndex);
+    _initControllerFor(_currentIndex + 1);
   }
 
   @override
   void dispose() {
-    // Pause all before dispose to reduce race windows
     for (final c in _controllers.values) {
       try {
         if (c.value.isInitialized) c.pause();
@@ -79,13 +89,23 @@ class _ReelsPageState extends State<ReelsPage> {
     super.dispose();
   }
 
+  VideoPlayerController _buildControllerForUrl(String url) {
+    if (url.startsWith('file://')) {
+      // file://... -> File URI
+      final uri = Uri.parse(url);
+      return VideoPlayerController.file(File(uri.toFilePath()));
+    }
+    // default: network
+    return VideoPlayerController.networkUrl(Uri.parse(url));
+  }
+
   Future<void> _initControllerFor(int index) async {
     if (!mounted) return;
     if (index < 0 || index >= _items.length) return;
     if (_controllers.containsKey(index)) return;
 
     final item = _items[index];
-    final controller = VideoPlayerController.networkUrl(Uri.parse(item.videoUrl));
+    final controller = _buildControllerForUrl(item.videoUrl);
 
     // Insert immediately so subsequent reads see a key (even if not initialized yet)
     _controllers[index] = controller;
@@ -93,7 +113,6 @@ class _ReelsPageState extends State<ReelsPage> {
     try {
       await controller.initialize();
       if (!mounted) {
-        // If we were disposed while initializing, dispose controller immediately
         controller.dispose();
         _controllers.remove(index);
         return;
@@ -117,12 +136,11 @@ class _ReelsPageState extends State<ReelsPage> {
         unawaited(_initControllerFor(index + 1));
       }
     } catch (_) {
-      // On any init error, clean entry
       _controllers.remove(index);
       try {
         controller.dispose();
       } catch (_) {}
-    } 
+    }
   }
 
   void _playOnly(int index) {
@@ -134,9 +152,7 @@ class _ReelsPageState extends State<ReelsPage> {
         } else {
           c.pause();
         }
-      } catch (_) {
-        // If a race caused a dispose, ignore
-      }
+      } catch (_) {}
     });
   }
 
@@ -170,14 +186,9 @@ class _ReelsPageState extends State<ReelsPage> {
               if (!mounted) return;
               setState(() => _currentIndex = i);
 
-              // Ensure controller exists/ready
-              await _initControllerFor(i);
-
-              // Play only the active index
-              _playOnly(i);
-
-              // Warm preload the next one
-              unawaited(_initControllerFor(i + 1));
+              await _initControllerFor(i); // ensure exists
+              _playOnly(i); // play active
+              unawaited(_initControllerFor(i + 1)); // warm next
             },
             itemBuilder: (context, index) {
               return _ReelTile(
@@ -208,13 +219,18 @@ class _ReelsPageState extends State<ReelsPage> {
             child: Row(
               children: [
                 IconButton(
-                  icon: const Iconify(MaterialSymbols.arrow_back_ios, color: Colors.white),                  // Arrow back
+                  icon: const Iconify(
+                    MaterialSymbols.arrow_back_ios,
+                    color: Colors.white,
+                  ),
                   onPressed: () => Navigator.of(context).maybePop(),
                 ),
                 const Spacer(),
                 IconButton(
                   icon: Iconify(
-                    _muted ?Teenyicons.sound_off_outline :Teenyicons.sound_on_outline,
+                    _muted
+                        ? Teenyicons.sound_off_outline
+                        : Teenyicons.sound_on_outline,
                     color: Colors.white,
                   ),
                   onPressed: _toggleMute,
@@ -227,9 +243,6 @@ class _ReelsPageState extends State<ReelsPage> {
     );
   }
 }
-
-
-
 
 /// --------------------------- REEL TILE ---------------------------
 class _ReelTile extends StatefulWidget {
@@ -259,7 +272,8 @@ class _ReelTile extends StatefulWidget {
   State<_ReelTile> createState() => _ReelTileState();
 }
 
-class _ReelTileState extends State<_ReelTile> with AutomaticKeepAliveClientMixin {
+class _ReelTileState extends State<_ReelTile>
+    with AutomaticKeepAliveClientMixin {
   late int _likeCount;
   late int _commentCount;
   bool _liked = false;
@@ -301,13 +315,9 @@ class _ReelTileState extends State<_ReelTile> with AutomaticKeepAliveClientMixin
         final c = widget.controller;
         if (c == null) return;
         if (!c.value.isInitialized) return;
-
-        // A final safety net: controller might get disposed in a race.
         try {
           visible ? c.play() : c.pause();
-        } catch (_) {
-          // ignore if already disposed during teardown
-        }
+        } catch (_) {}
       },
       child: Stack(
         fit: StackFit.expand,
@@ -334,7 +344,10 @@ class _ReelTileState extends State<_ReelTile> with AutomaticKeepAliveClientMixin
                       child: SizedBox(
                         height: 44,
                         width: 44,
-                        child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 3,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
             ),
@@ -342,7 +355,13 @@ class _ReelTileState extends State<_ReelTile> with AutomaticKeepAliveClientMixin
 
           // Heart burst
           if (widget.overlayHeart)
-            const Center(child: Iconify(Ph.heart, color: Color.fromARGB(179, 179, 15, 15), size: 120)),
+            const Center(
+              child: Iconify(
+                Ph.heart,
+                color: Color.fromARGB(179, 179, 15, 15),
+                size: 120,
+              ),
+            ),
 
           // Left-bottom meta + progress
           _BottomMeta(
@@ -387,27 +406,42 @@ class _BottomMeta extends StatelessWidget {
     return Positioned(
       left: 12,
       right: 12,
-      bottom: 86, // space for the action bar below
+      bottom: 86,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              CircleAvatar(radius: 20, backgroundImage: NetworkImage(item.avatarUrl)),
+              CircleAvatar(
+                radius: 20,
+                backgroundImage: NetworkImage(item.avatarUrl),
+              ),
               const SizedBox(width: 8),
-              Text('@${item.authorName}',
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+              Text(
+                '@${item.authorName}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
               const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.greenAccent,
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: const Text(
                   'Follow',
-                  style: TextStyle(color: Colors.black, fontWeight: FontWeight.w700, fontSize: 12),
+                  style: TextStyle(
+                    color: Colors.black,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
                 ),
               ),
             ],
@@ -422,7 +456,6 @@ class _BottomMeta extends StatelessWidget {
           const SizedBox(height: 1),
           Row(
             children: [
-             
               const SizedBox(width: 15),
               Expanded(
                 child: Text(
@@ -433,13 +466,13 @@ class _BottomMeta extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 1),
-               Iconify(
-      muted
-          ? MaterialSymbols.volume_off_rounded
-          : MaterialSymbols.volume_up_rounded,
-      color: Colors.white70,
-      size: 18,
-    ),
+              Iconify(
+                muted
+                    ? MaterialSymbols.volume_off_rounded
+                    : MaterialSymbols.volume_up_rounded,
+                color: Colors.white70, // keep as White70 color
+                size: 18,
+              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -494,7 +527,10 @@ class _BottomActionBar extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text('1:20', style: TextStyle(color: Colors.white70, fontSize: 10)),
+          const Text(
+            '1:20',
+            style: TextStyle(color: Colors.white70, fontSize: 10),
+          ),
           Row(
             children: [
               _chip(
@@ -507,34 +543,51 @@ class _BottomActionBar extends StatelessWidget {
                 icon: const Iconify(Uil.comment, size: 25, color: Colors.white),
                 label: commentsLabel,
                 onTap: onComment,
-              ), 
-             // Icon  Action Below 
+              ),
               const SizedBox(width: 14),
               _circle(
-                icon: const Iconify(Ph.shuffle_fill, size: 25, color: Colors.white),
+                icon: const Iconify(
+                  Ph.shuffle_fill,
+                  size: 25,
+                  color: Colors.white,
+                ),
                 onTap: onRemix,
               ),
               const SizedBox(width: 14),
               _circle(
-                icon: const Iconify(Ph.paper_plane_tilt, size: 25, color: Colors.white),
+                icon: const Iconify(
+                  Ph.paper_plane_tilt,
+                  size: 25,
+                  color: Colors.white,
+                ),
                 onTap: onShare,
               ),
             ],
           ),
-          const Text('-2:20', style: TextStyle(color: Colors.white70, fontSize: 10)),
+          const Text(
+            '-2:20',
+            style: TextStyle(color: Colors.white70, fontSize: 10),
+          ),
         ],
       ),
     );
   }
 
-  Widget _chip({required Widget icon, required String label, required VoidCallback onTap}) {
+  Widget _chip({
+    required Widget icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Row(
         children: [
           _circle(icon: icon, onTap: onTap),
           const SizedBox(width: 6),
-          Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
+          Text(
+            label,
+            style: const TextStyle(color: Colors.white, fontSize: 12),
+          ),
         ],
       ),
     );
@@ -543,35 +596,33 @@ class _BottomActionBar extends StatelessWidget {
   Widget _circle({required Widget icon, required VoidCallback onTap}) {
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.black38),
-        child: icon,
-      ),
+      child: Container(padding: const EdgeInsets.all(8), child: icon),
     );
   }
 }
 
-/// Subtle bottom gradient
-
-/// Demo items
+/// Demo items (fallback)
 const _demoItems = <ReelItem>[
   ReelItem(
     id: '1',
-    videoUrl: 'https://flutter.github.io/assets-for-api-docs/assets/videos/bee.mp4',
+    videoUrl:
+        'https://flutter.github.io/assets-for-api-docs/assets/videos/bee.mp4',
     caption: 'Morning vibes in Phnom Penh',
     music: 'Original Audio  @sinayun',
-    avatarUrl: 'https://images.unsplash.com/photo-1502685104226-ee32379fefbe?w=200',
+    avatarUrl:
+        'https://images.unsplash.com/photo-1502685104226-ee32379fefbe?w=200',
     authorName: 'sinayun',
-    likes: 12900,
-    comments: 340,
+    likes: 0,
+    comments: 0,
   ),
   ReelItem(
     id: '2',
-    videoUrl: 'https://flutter.github.io/assets-for-api-docs/assets/videos/butterfly.mp4',
+    videoUrl:
+        'https://flutter.github.io/assets-for-api-docs/assets/videos/butterfly.mp4',
     caption: 'Tech vlog: iFeed update',
     music: 'Track — iFeed Beats',
-    avatarUrl: 'https://images.unsplash.com/photo-1545996124-0501ebae84d5?w=200',
+    avatarUrl:
+        'https://images.unsplash.com/photo-1545996124-0501ebae84d5?w=200',
     authorName: 'techsquad',
     likes: 0,
     comments: 0,
