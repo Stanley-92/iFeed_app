@@ -19,18 +19,18 @@ class CreateScreen extends StatefulWidget {
 class _CreateScreenState extends State<CreateScreen> {
   // Name
   final _firstController = TextEditingController();
-  final _lastController  = TextEditingController();
+  final _lastController = TextEditingController();
 
-  // DOB
-  String _day = '04';
-  String _month = '04';
-  String _year = DateTime.now().year.toString();
+  // DOB — use valid defaults
+  late String _day;
+  late String _month;
+  late String _year;
 
   // Gender
   String _gender = 'Female';
 
   // Contact + password
-  final _emailController    = TextEditingController();
+  final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
   // UI state
@@ -39,44 +39,55 @@ class _CreateScreenState extends State<CreateScreen> {
 
   // Firebase
   final _auth = FirebaseAuth.instance;
-  final _db   = FirebaseFirestore.instance;
+  final _db = FirebaseFirestore.instance;
 
   // Dropdown helpers
-  List<String> get _days   => List.generate(31, (i) => (i + 1).toString().padLeft(2, '0'));
-  List<String> get _months => List.generate(12, (i) => (i + 1).toString().padLeft(2, '0'));
-  List<String> get _years  {
+  List<String> get _days =>
+      List.generate(31, (i) => (i + 1).toString().padLeft(2, '0'));
+  List<String> get _months =>
+      List.generate(12, (i) => (i + 1).toString().padLeft(2, '0'));
+  List<String> get _years {
     final y = DateTime.now().year;
     return List.generate(100, (i) => (y - i).toString());
   }
 
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _day = now.day.toString().padLeft(2, '0');
+    _month = now.month.toString().padLeft(2, '0');
+    _year = now.year.toString();
+  }
+
   InputDecoration _boxDecoration(String hint) => InputDecoration(
-        hintText: hint,
-        hintStyle: const TextStyle(fontSize: 13),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-          borderSide: const BorderSide(color: Color(0xFFCCCEF9), width: 2),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(6),
-          borderSide: const BorderSide(color: Color(0xFF5670FF), width: 2),
-        ),
-      );
+    hintText: hint,
+    hintStyle: const TextStyle(fontSize: 13),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(6),
+      borderSide: const BorderSide(color: Color(0xFFCCCEF9), width: 2),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(6),
+      borderSide: const BorderSide(color: Color(0xFF5670FF), width: 2),
+    ),
+  );
 
   Widget _dobBox({required Widget child, double width = 112}) =>
       SizedBox(width: width, height: 40, child: child);
 
   /// Ensure the Firebase user has a displayName (uses entered first/last if missing)
   Future<void> _ensureDisplayName(User user) async {
-    final entered = [_firstController.text.trim(), _lastController.text.trim()]
-        .where((s) => s.isNotEmpty)
-        .join(' ')
-        .trim();
+    final entered = [
+      _firstController.text.trim(),
+      _lastController.text.trim(),
+    ].where((s) => s.isNotEmpty).join(' ').trim();
 
     if ((user.displayName == null || user.displayName!.trim().isEmpty) &&
         entered.isNotEmpty) {
       await user.updateDisplayName(entered);
-      await user.reload(); // important so currentUser reflects the change
+      await user.reload();
     }
   }
 
@@ -88,29 +99,32 @@ class _CreateScreenState extends State<CreateScreen> {
     ].where((s) => s.isNotEmpty).join(' ').trim();
 
     await _db.collection('users').doc(user.uid).set({
-      'uid'         : user.uid,
-      'email'       : user.email,
-      'displayName' : (displayName != null && displayName.isNotEmpty)
+      'uid': user.uid,
+      'email': user.email,
+      'displayName': (displayName != null && displayName.isNotEmpty)
           ? displayName
           : (user.displayName?.trim().isNotEmpty == true
-              ? user.displayName
-              : fallbackEnteredName),
-      'photoURL'    : user.photoURL,
-      'dob'         : {'day': _day, 'month': _month, 'year': _year},
-      'gender'      : _gender,
-      'providerIds' : user.providerData.map((p) => p.providerId).toList(),
-      'updatedAt'   : FieldValue.serverTimestamp(),
-      'createdAt'   : FieldValue.serverTimestamp(),
+                ? user.displayName
+                : fallbackEnteredName),
+      'photoURL': user.photoURL,
+      'dob': {'day': _day, 'month': _month, 'year': _year},
+      'gender': _gender,
+      'providerIds': user.providerData.map((p) => p.providerId).toList(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'createdAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
 
   // ---------------- Google Sign-In ----------------
   Future<void> _handleGoogle() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final googleUser = await GoogleSignIn().signIn();
       if (googleUser == null) {
-        setState(() => _loading = false); // user cancelled
+        setState(() => _loading = false);
         return;
       }
       final auth = await googleUser.authentication;
@@ -123,12 +137,9 @@ class _CreateScreenState extends State<CreateScreen> {
       final user = cred.user;
 
       if (user != null) {
-        // Ensure we have a display name; then reload to refresh local cache
         await _ensureDisplayName(user);
         await user.reload();
         final refreshed = _auth.currentUser!;
-
-        // Save profile fields (DOB, gender, etc.)
         await _upsertUserDoc(refreshed);
 
         if (!mounted) return;
@@ -149,19 +160,28 @@ class _CreateScreenState extends State<CreateScreen> {
   // ------------- Email + Password Sign Up -------------
   Future<void> _handleCreateEmail() async {
     final first = _firstController.text.trim();
-    final last  = _lastController.text.trim();
+    final last = _lastController.text.trim();
     final email = _emailController.text.trim();
-    final pass  = _passwordController.text;
+    final pass = _passwordController.text;
 
     if (email.isEmpty || pass.length < 6) {
-      setState(() => _error = 'Please enter a valid email and a password with 6+ characters.');
+      setState(
+        () => _error =
+            'Please enter a valid email and a password with 6+ characters.',
+      );
       return;
     }
 
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
 
     try {
-      final displayName = [first, last].where((s) => s.isNotEmpty).join(' ').trim();
+      final displayName = [
+        first,
+        last,
+      ].where((s) => s.isNotEmpty).join(' ').trim();
 
       final cred = await _auth.createUserWithEmailAndPassword(
         email: email,
@@ -173,15 +193,13 @@ class _CreateScreenState extends State<CreateScreen> {
         if (displayName.isNotEmpty) {
           await user.updateDisplayName(displayName);
         }
-        // Reload so currentUser and providerData are fresh
         await user.reload();
         final refreshed = _auth.currentUser!;
-
-        // Save profile to Firestore with explicit displayName override
         await _upsertUserDoc(refreshed, displayName: displayName);
 
-        // (Optional) send email verification (non-blocking)
-        try { await refreshed.sendEmailVerification(); } catch (_) {}
+        try {
+          await refreshed.sendEmailVerification();
+        } catch (_) {}
 
         if (!mounted) return;
         Navigator.pushReplacement(
@@ -192,10 +210,17 @@ class _CreateScreenState extends State<CreateScreen> {
     } on FirebaseAuthException catch (e) {
       String msg;
       switch (e.code) {
-        case 'email-already-in-use': msg = 'This email is already in use.'; break;
-        case 'invalid-email':        msg = 'Email address looks invalid.';  break;
-        case 'weak-password':        msg = 'Password is too weak.';         break;
-        default:                     msg = e.message ?? e.code;
+        case 'email-already-in-use':
+          msg = 'This email is already in use.';
+          break;
+        case 'invalid-email':
+          msg = 'Email address looks invalid.';
+          break;
+        case 'weak-password':
+          msg = 'Password is too weak.';
+          break;
+        default:
+          msg = e.message ?? e.code;
       }
       setState(() => _error = msg);
     } catch (e) {
@@ -228,10 +253,13 @@ class _CreateScreenState extends State<CreateScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const SizedBox(height: 8),
                 const Text(
                   'iFeed',
-                  style: TextStyle(fontSize: 40, fontWeight: FontWeight.w800, color: Color(0xFF19A53A)),
+                  style: TextStyle(
+                    fontSize: 40,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF19A53A),
+                  ),
                 ),
                 const SizedBox(height: 22),
 
@@ -246,8 +274,13 @@ class _CreateScreenState extends State<CreateScreen> {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF2C2C2C),
                     side: const BorderSide(color: Color(0xFFCCD3FF)),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
                     backgroundColor: Colors.white,
                   ),
                 ),
@@ -256,10 +289,8 @@ class _CreateScreenState extends State<CreateScreen> {
 
                 // Inner form card
                 Container(
-                  width: 520,
-                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+                  padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
-                    color: Colors.white,
                     border: Border.all(color: const Color(0xFFCDCDCD)),
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -267,162 +298,165 @@ class _CreateScreenState extends State<CreateScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Name
-                      const Text('Name', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+                      const Text(
+                        'Name',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       const SizedBox(height: 8),
                       Row(
                         children: [
                           Expanded(
-                            child: SizedBox(
-                              height: 40,
-                              child: TextField(
-                                controller: _firstController,
-                                decoration: _boxDecoration('First name'),
-                              ),
+                            child: TextField(
+                              controller: _firstController,
+                              decoration: _boxDecoration('First name'),
                             ),
                           ),
                           const SizedBox(width: 18),
                           Expanded(
-                            child: SizedBox(
-                              height: 40,
-                              child: TextField(
-                                controller: _lastController,
-                                decoration: _boxDecoration('Last name'),
-                              ),
+                            child: TextField(
+                              controller: _lastController,
+                              decoration: _boxDecoration('Last name'),
                             ),
                           ),
                         ],
                       ),
-
                       const SizedBox(height: 18),
 
                       // DOB
-                      const Text('Date of Birth', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+                      const Text(
+                        'Date of Birth',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       const SizedBox(height: 8),
                       Row(
                         children: [
                           _dobBox(
                             child: DropdownButtonFormField<String>(
-                              value: _day,
-                              items: _days.map((d) => DropdownMenuItem(value: d, child: Text(d, style: const TextStyle(fontSize: 13)))).toList(),
-                              onChanged: (v) => setState(() => _day = v ?? _day),
+                              value: _days.contains(_day) ? _day : null,
+                              items: _days
+                                  .map(
+                                    (d) => DropdownMenuItem(
+                                      value: d,
+                                      child: Text(d),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (v) =>
+                                  setState(() => _day = v ?? _day),
                               decoration: _boxDecoration('DD'),
-                              icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18),
                             ),
                           ),
                           const SizedBox(width: 20),
                           _dobBox(
                             child: DropdownButtonFormField<String>(
-                              value: _month,
-                              items: _months.map((m) => DropdownMenuItem(value: m, child: Text(m, style: const TextStyle(fontSize: 13)))).toList(),
-                              onChanged: (v) => setState(() => _month = v ?? _month),
+                              value: _months.contains(_month) ? _month : null,
+                              items: _months
+                                  .map(
+                                    (m) => DropdownMenuItem(
+                                      value: m,
+                                      child: Text(m),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (v) =>
+                                  setState(() => _month = v ?? _month),
                               decoration: _boxDecoration('MM'),
-                              icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18),
                             ),
                           ),
                           const SizedBox(width: 20),
                           _dobBox(
                             child: DropdownButtonFormField<String>(
-                              value: _year,
-                              items: _years.map((y) => DropdownMenuItem(value: y, child: Text(y, style: const TextStyle(fontSize: 13)))).toList(),
-                              onChanged: (v) => setState(() => _year = v ?? _year),
+                              value: _years.contains(_year) ? _year : null,
+                              items: _years
+                                  .map(
+                                    (y) => DropdownMenuItem(
+                                      value: y,
+                                      child: Text(y),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (v) =>
+                                  setState(() => _year = v ?? _year),
                               decoration: _boxDecoration('YYYY'),
-                              icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18),
                             ),
                           ),
                         ],
                       ),
-
                       const SizedBox(height: 18),
 
                       // Gender
-                      const Text('Gender', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 10),
+                      const Text(
+                        'Gender',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       Wrap(
                         spacing: 28,
                         children: [
                           ChoiceChip(
-                            label: const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              child: Text('Female', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-                            ),
+                            label: const Text('Female'),
                             selected: _gender == 'Female',
-                            onSelected: (_) => setState(() => _gender = 'Female'),
-                            side: const BorderSide(color: Color(0xFFCCCEF9)),
-                            selectedColor: const Color(0xFFEFF2FF),
-                            backgroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                            onSelected: (_) =>
+                                setState(() => _gender = 'Female'),
                           ),
                           ChoiceChip(
-                            label: const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 28, vertical: 2),
-                              child: Text('Male', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-                            ),
+                            label: const Text('Male'),
                             selected: _gender == 'Male',
                             onSelected: (_) => setState(() => _gender = 'Male'),
-                            side: const BorderSide(color: Color(0xFFCCCEF9)),
-                            selectedColor: const Color(0xFFEFF2FF),
-                            backgroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                           ),
                           ChoiceChip(
-                            label: const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              child: Text('Other', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-                            ),
+                            label: const Text('Other'),
                             selected: _gender == 'Other',
-                            onSelected: (_) => setState(() => _gender = 'Other'),
-                            side: const BorderSide(color: Color(0xFFCCCEF9)),
-                            selectedColor: const Color(0xFFEFF2FF),
-                            backgroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                            onSelected: (_) =>
+                                setState(() => _gender = 'Other'),
                           ),
                         ],
                       ),
-
                       const SizedBox(height: 14),
 
                       // Email
-                      SizedBox(
-                        height: 40,
-                        child: TextField(
-                          controller: _emailController,
-                          keyboardType: TextInputType.emailAddress,
-                          decoration: _boxDecoration('Email'),
-                        ),
+                      TextField(
+                        controller: _emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: _boxDecoration('Email'),
                       ),
                       const SizedBox(height: 12),
 
                       // Password
-                      SizedBox(
-                        height: 40,
-                        child: TextField(
-                          controller: _passwordController,
-                          obscureText: true,
-                          decoration: _boxDecoration('New password'),
-                        ),
+                      TextField(
+                        controller: _passwordController,
+                        obscureText: true,
+                        decoration: _boxDecoration('New password'),
                       ),
-
                       const SizedBox(height: 16),
 
-                      // Create account button
+                      // Create button
                       Center(
                         child: OutlinedButton(
                           onPressed: _loading ? null : _handleCreateEmail,
                           style: OutlinedButton.styleFrom(
                             side: const BorderSide(color: Color(0xFF2E49FF)),
-                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                           ),
                           child: Text(
                             _loading ? 'Creating…' : 'Create Your Account',
-                            style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: Color(0xFF2E49FF)),
                           ),
                         ),
                       ),
 
                       if (_error != null) ...[
                         const SizedBox(height: 10),
-                        Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 12.5)),
+                        Text(
+                          _error!,
+                          style: const TextStyle(color: Colors.red),
+                        ),
                       ],
                     ],
                   ),
