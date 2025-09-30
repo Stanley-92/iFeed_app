@@ -1,6 +1,9 @@
-// profile.dart
+// lib/profile.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
 import 'package:iconify_flutter/iconify_flutter.dart';
 import 'package:iconify_flutter/icons/ph.dart';
 import 'package:iconify_flutter/icons/ion.dart';
@@ -9,11 +12,11 @@ import 'package:iconify_flutter/icons/fa.dart';
 import 'package:iconify_flutter/icons/gg.dart';
 import 'package:iconify_flutter/icons/mdi.dart';
 import 'package:iconify_flutter/icons/uil.dart';
-import 'package:video_player/video_player.dart';
 import 'package:iconify_flutter/icons/fa6_regular.dart';
+import 'package:iconify_flutter/icons/teenyicons.dart';
+import 'package:video_player/video_player.dart';
 
 import 'setting_page.dart';
-import 'package:iconify_flutter/icons/teenyicons.dart';
 import 'share_popup.dart';
 import 'edit_page.dart' show EditProfilePage, ProfileEditResult;
 import 'post_modal.dart' as model; // Post, PostMedia, MediaType
@@ -21,7 +24,10 @@ import 'suggestions_page.dart';
 import 'reel_page.dart';
 import 'mainfeed.dart' show MainfeedScreen, UploadPostPage;
 
-const String _defaultAvatar = ''; //Avater
+// Leave empty string for now; we won't create NetworkImage('') with it.
+const String _defaultAvatar = '';
+
+enum _Tab { iFeed, shuffle, media, replies }
 
 class ProfileUserScreen extends StatefulWidget {
   const ProfileUserScreen({super.key});
@@ -30,31 +36,28 @@ class ProfileUserScreen extends StatefulWidget {
   State<ProfileUserScreen> createState() => _ProfileUserScreenState();
 }
 
-enum _Tab { iFeed, shuffle, media, replies }
-
 class _ProfileUserScreenState extends State<ProfileUserScreen> {
   final List<model.Post> _posts = <model.Post>[];
   _Tab _active = _Tab.iFeed;
 
-  // Saved profile fields
+  // Local editable profile pieces (used for Edit page preview)
   String? _profileAvatarPath;
-  String _displayName = 'sinayun_xyn'; 
+  String _displayNameFallback = ''; // fallback if Firestore missing
   String _bio = 'Bio';
 
-
-
-
-
-// ---------- Open Edit page (prefill + await result) ----------
-  Future<void> openEditProfile(BuildContext context) async {
+  // ---------- Open Edit page ----------
+  Future<void> openEditProfile(
+    BuildContext context, {
+    required String currentName,
+  }) async {
     final res = await Navigator.push<ProfileEditResult>(
       context,
       MaterialPageRoute(
         builder: (_) => EditProfilePage(
-          initialName: _displayName,
+          initialName: currentName,
           initialBio: _bio,
           initialAvatarPath: _profileAvatarPath,
-          initialBirthDate: null, // set if you store it in state
+          initialBirthDate: null,
         ),
       ),
     );
@@ -64,20 +67,21 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
       if (res.avatarPath != null && res.avatarPath!.isNotEmpty) {
         _profileAvatarPath = res.avatarPath;
       }
-      if (res.name.isNotEmpty) _displayName = res.name;
+      if (res.name.isNotEmpty) _displayNameFallback = res.name;
       _bio = res.bio;
-      // You can also store res.birthDate / res.shareAsFirstPost if needed
     });
   }
 
-  ImageProvider<Object> _headerAvatarImage() {
+  ImageProvider<Object>? _headerAvatarImage(String? photoUrl) {
     if (_profileAvatarPath != null && _profileAvatarPath!.isNotEmpty) {
       return FileImage(File(_profileAvatarPath!));
     }
-    return const NetworkImage(_defaultAvatar);
+    if (photoUrl != null && photoUrl.isNotEmpty) {
+      return NetworkImage(photoUrl);
+    }
+    // Return null to let CircleAvatar show initials/backgroundColor gracefully.
+    return null;
   }
-
-
 
   // ---------- Nav ----------
   void _goHome(BuildContext context) {
@@ -102,9 +106,6 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
     );
   }
 
-  
-  
-  // ---------- Upload (same page as Mainfeed) ----------
   Future<void> _openComposer(BuildContext context) async {
     final model.Post? newPost = await Navigator.push<model.Post>(
       context,
@@ -118,208 +119,261 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
     }
   }
 
-
-
-// ---------- Helpers ----------
   bool _hasMedia(model.Post p) => p.media.isNotEmpty;
   List<model.Post> _mediaOnly() => _posts.where(_hasMedia).toList();
 
   @override
   Widget build(BuildContext context) {
-   
+    final auth = FirebaseAuth.instance;
+    final user = auth.currentUser;
 
-   
-   
- // Choose content by tab
-    Widget content;
-    switch (_active) {
-      case _Tab.iFeed:
-        content = _posts.isEmpty
-            ? _EmptyState(onCreate: () => _openComposer(context))
-            : _ProfileMediaList(posts: _posts);
-        break;
-      case _Tab.shuffle:
-        content = const _NothingYet(label: 'Nothing yet!');
-        break;
-      case _Tab.media:
-        final mediaPosts = _mediaOnly();
-        content = mediaPosts.isEmpty
-            ? const _NothingYet(label: 'No media yet')
-            : _ProfileMediaList(posts: mediaPosts);
-        break;
-      case _Tab.replies:
-        content = const _NothingYet(label: 'No replies yet');
-        break;
+    if (user == null) {
+      return const Scaffold(body: Center(child: Text('Not signed in')));
     }
+
+    final userDoc = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid);
 
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: Column(
-          children: [
-           
-           
- // ---------- Header ----------
-            Container(
-              padding: const EdgeInsets.fromLTRB(38, 16, 18, 12),
-              color: Colors.white,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    '', // iFeed Logo here
-                    style: TextStyle(
-                      color: Color(0xff16a34a),
-                      fontWeight: FontWeight.w800,
-                      fontSize: 48,
-                      letterSpacing: .2,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
+        child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: userDoc.snapshots(),
+          builder: (context, snap) {
+            // Prepare values with safe fallbacks
+            String name = user.displayName ?? '';
+            String email = user.email ?? '';
+            String? photoURL = user.photoURL;
+
+            String day = '—', month = '—', year = '—', gender = '—';
+
+            if (snap.hasData && snap.data!.exists) {
+              final data = snap.data!.data()!;
+              final n = (data['displayName'] as String?)?.trim();
+              if (n != null && n.isNotEmpty) name = n;
+              email = (data['email'] as String?) ?? email;
+              photoURL = (data['photoURL'] as String?) ?? photoURL;
+
+              final dob = (data['dob'] as Map?) ?? {};
+              day = (dob['day'] as String?) ?? day;
+              month = (dob['month'] as String?) ?? month;
+              year = (dob['year'] as String?) ?? year;
+              gender = (data['gender'] as String?) ?? gender;
+            }
+
+            // If still blank, use editable fallback (e.g., after Edit page)
+            if (name.trim().isEmpty && _displayNameFallback.trim().isNotEmpty) {
+              name = _displayNameFallback.trim();
+            }
+
+            // ---------- Choose content by tab ----------
+            Widget content;
+            switch (_active) {
+              case _Tab.iFeed:
+                content = _posts.isEmpty
+                    ? _EmptyState(onCreate: () => _openComposer(context))
+                    : _ProfileMediaList(posts: _posts);
+                break;
+              case _Tab.shuffle:
+                content = const _NothingYet(label: 'Nothing yet!');
+                break;
+              case _Tab.media:
+                final mediaPosts = _mediaOnly();
+                content = mediaPosts.isEmpty
+                    ? const _NothingYet(label: 'No media yet')
+                    : _ProfileMediaList(posts: mediaPosts);
+                break;
+              case _Tab.replies:
+                content = const _NothingYet(label: 'No replies yet');
+                break;
+            }
+
+            return Column(
+              children: [
+                // ---------- Header ----------
+                Container(
+                  padding: const EdgeInsets.fromLTRB(38, 16, 18, 12),
+                  color: Colors.white,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Name + (static role line if you want)
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _displayName,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontStyle: FontStyle.normal,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 15,
+                      const SizedBox(height: 10),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          // Name + subtitle
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  name.isEmpty ? '—' : name,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontStyle: FontStyle.normal,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  email.isEmpty ? '—' : email,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: Color.fromARGB(137, 19, 16, 16),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // Edit button
+                          IconButton(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            icon: const Iconify(Uil.list_ul, size: 24),
+                            onPressed: () =>
+                                openEditProfile(context, currentName: name),
+                          ),
+                          IconButton(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 18,
+                              vertical: 8,
+                            ),
+                            icon: const Iconify(
+                              Fa6Regular.pen_to_square,
+                              size: 28,
+                            ),
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => SttingPage(),
+                                ),
+                              );
+                            },
+                          ),
+
+                          // Avatar
+                          Material(
+                            color: Colors.transparent,
+                            shape: const CircleBorder(),
+                            child: InkWell(
+                              customBorder: const CircleBorder(),
+                              onTap: () =>
+                                  openEditProfile(context, currentName: name),
+                              child: CircleAvatar(
+                                radius: 30,
+                                backgroundImage: _headerAvatarImage(photoURL),
+                                backgroundColor: const Color(
+                                  0xFFE5E7EB,
+                                ), // gray fallback
+                                child:
+                                    (photoURL == null || photoURL.isEmpty) &&
+                                        name.isNotEmpty
+                                    ? Text(
+                                        name.trim().isNotEmpty
+                                            ? name.trim()[0].toUpperCase()
+                                            : '?',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          color: Colors.black54,
+                                        ),
+                                      )
+                                    : null,
                               ),
                             ),
-                            const SizedBox(height: 2),
-                            const Text(
-                            'Software Engineer',
-                              style: TextStyle(
-                                fontSize: 15,
-                                color: Color.fromARGB(137, 19, 16, 16),
-                              ),
-                            ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
+                      const SizedBox(height: 12),
 
-
-//Icon Action Top
-                      IconButton(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        icon: const Iconify(Uil.list_ul, size: 24),
-                        onPressed: () => openEditProfile(context),
-                      ),
-IconButton(
-   padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-  icon: const Iconify(
-    Fa6Regular.pen_to_square,
-    size: 28,
-  ),
-  onPressed: () {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => SttingPage()),
-    );
-  },
-),
-
-                      // Avatar image (tap to edit)
-                      Material(
-                        color: Colors.transparent,
-                        shape: const CircleBorder(),
-                        child: InkWell(
-                          customBorder: const CircleBorder(),
-                          onTap: () => openEditProfile(context),
-                          child: CircleAvatar(
-                            radius: 30,
-                            backgroundImage: _headerAvatarImage(),
+                      if (_bio.isNotEmpty)
+                        Text(
+                          _bio,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            color: Color.fromARGB(240, 0, 0, 0),
                           ),
                         ),
+
+                      const SizedBox(height: 8),
+                      Row(
+                        children: const [
+                          _SmallStat(label: '11k Follower'),
+                          SizedBox(width: 18),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+
+                      // Extra line: gender + DOB from Firestore
+                      Text(
+                        'Gender: $gender • DOB: $day/$month/$year',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: Colors.black54,
+                        ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  if (_bio.isNotEmpty)
-                    Text(
-                      _bio,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        color: Color.fromARGB(240, 0, 0, 0),
+                ),
+
+                // ---------- Tabs ----------
+                Container(
+                  height: 78,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    border: Border(
+                      top: BorderSide(
+                        color: Color.fromARGB(255, 216, 216, 216),
                       ),
                     ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: const [
-                      _SmallStat(label: '11k Follower'),
-                    SizedBox(width: 18),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _TabText(
+                        'iFeed',
+                        isActive: _active == _Tab.iFeed,
+                        onTap: () => setState(() => _active = _Tab.iFeed),
+                      ),
+                      _TabText(
+                        'Shuffle',
+                        isActive: _active == _Tab.shuffle,
+                        onTap: () => setState(() => _active = _Tab.shuffle),
+                      ),
+                      _TabText(
+                        'Media',
+                        isActive: _active == _Tab.media,
+                        onTap: () => setState(() => _active = _Tab.media),
+                      ),
+                      _TabText(
+                        'Replies',
+                        isActive: _active == _Tab.replies,
+                        onTap: () => setState(() => _active = _Tab.replies),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  _SmallStat(label: 'joined 2017'),
-                ],
-              ),
-            ),
-
-            
-            
-            // ---------- Tabs ----------
-            Container(
-              height: 78,
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                border: Border(
-                  top: BorderSide(color: Color.fromARGB(255, 216, 216, 216)),
                 ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _TabText(
-                    'iFeed',
-                    isActive: _active == _Tab.iFeed,
-                    onTap: () => setState(() => _active = _Tab.iFeed),
-                  ),
-                  _TabText(
-                    'Shuffle',
-                    isActive: _active == _Tab.shuffle,
-                    onTap: () => setState(() => _active = _Tab.shuffle),
-                  ),
-                  _TabText(
-                    'Media',
-                    isActive: _active == _Tab.media,
-                    onTap: () => setState(() => _active = _Tab.media),
-                  ),
-                  _TabText(
-                    'Replies',
-                    isActive: _active == _Tab.replies,
-                    onTap: () => setState(() => _active = _Tab.replies),
-                  ),
-                ],
-              ),
-            ),
 
-            
-            
-            
-// ---------- Content ----------
-            Expanded(
-              child: Container(
-                color: Colors.white,
-                width: double.infinity,
-                child: content,
-              ),
-            ),
-          ],
+                // ---------- Content ----------
+                Expanded(
+                  child: Container(
+                    color: Colors.white,
+                    width: double.infinity,
+                    child: content,
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
 
-
-
-
-// ---------- Bottom Bar ----------
+      // ---------- Bottom Bar ----------
       bottomNavigationBar: Container(
         height: 68,
         decoration: const BoxDecoration(
@@ -339,14 +393,18 @@ IconButton(
               icon: Ph.play_circle_bold,
               onTap: () => _openReels(context),
             ),
-            _BarIcon(icon: Gg.profile, onTap: () {/* already here */}),
+            _BarIcon(
+              icon: Gg.profile,
+              onTap: () {
+                /* already here */
+              },
+            ),
           ],
         ),
       ),
     );
   }
 }
-
 
 // ======================= Shuffle / Replies placeholder =======================
 class _NothingYet extends StatelessWidget {
@@ -376,7 +434,6 @@ class _ProfileMediaList extends StatelessWidget {
   }
 }
 
-/// Lightweight feed types mirroring mainfeed.dart for rendering
 enum PMediaType { image, video }
 
 class ProfileFeedMedia {
@@ -427,8 +484,9 @@ class ProfilePostCard extends StatefulWidget {
     final media = p.media.map((m) {
       final isNetwork = !m.isLocal;
       final path = m.isLocal ? (m.file?.path ?? '') : (m.url ?? '');
-      final type =
-          (m.type == model.MediaType.image) ? PMediaType.image : PMediaType.video;
+      final type = (m.type == model.MediaType.image)
+          ? PMediaType.image
+          : PMediaType.video;
       return ProfileFeedMedia(path: path, type: type, isNetwork: isNetwork);
     }).toList();
 
@@ -455,8 +513,8 @@ class ProfilePostCardState extends State<ProfilePostCard> {
     return v.endsWith('.0') ? '${v.substring(0, v.length - 2)}K' : '${v}K';
   }
 
-  ImageProvider _avatarProvider(String avatar) {
-    if (avatar.isEmpty) return const NetworkImage(_defaultAvatar);
+  ImageProvider? _avatarProvider(String avatar) {
+    if (avatar.isEmpty) return null;
     return NetworkImage(avatar);
   }
 
@@ -474,14 +532,10 @@ class ProfilePostCardState extends State<ProfilePostCard> {
             padding: const EdgeInsets.fromLTRB(38, 10, 12, 5),
             child: Row(
               children: [
-             
-             
-             
-                // Avatar image Profile
                 CircleAvatar(
                   radius: 30,
                   backgroundImage: _avatarProvider(post.avatar),
-                  onBackgroundImageError: (_, __) {},
+                  backgroundColor: const Color(0xFFE5E7EB),
                 ),
                 const SizedBox(width: 18),
                 Expanded(
@@ -491,12 +545,16 @@ class ProfilePostCardState extends State<ProfilePostCard> {
                       Text(
                         post.username,
                         style: const TextStyle(
-                            fontWeight: FontWeight.w700, fontSize: 18),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 18,
+                        ),
                       ),
                       Text(
                         post.time,
-                        style:
-                            const TextStyle(color: Colors.black54, fontSize: 12),
+                        style: const TextStyle(
+                          color: Colors.black54,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
@@ -531,7 +589,6 @@ class ProfilePostCardState extends State<ProfilePostCard> {
             ),
           ),
 
-          // Caption
           if (post.caption.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(100, 0, 12, 18),
@@ -545,12 +602,9 @@ class ProfilePostCardState extends State<ProfilePostCard> {
               ),
             ),
 
-          // Media (single / two / horizontal list)
           if (post.media.isNotEmpty) _ProfilePostMedia(items: post.media),
 
-          
-          
-          // Actions (heart / comment / shuffle / share)
+          // Actions
           Padding(
             padding: const EdgeInsets.fromLTRB(88, 0, 18, 8),
             child: Row(
@@ -579,9 +633,7 @@ class ProfilePostCardState extends State<ProfilePostCard> {
                   ),
                 IconButton(
                   icon: const Iconify(Uil.comment, size: 24),
-                  onPressed: () {
-                    // hook to your Comments page if you want (same as mainfeed.dart)
-                  },
+                  onPressed: () {},
                 ),
                 if (post.commentCount > 0)
                   Padding(
@@ -591,9 +643,6 @@ class ProfilePostCardState extends State<ProfilePostCard> {
                       style: const TextStyle(fontSize: 13),
                     ),
                   ),
-               
-               
-               
                 IconButton(
                   icon: const Iconify(Ph.shuffle_fill, size: 24),
                   onPressed: () => setState(() => post.shareCount++),
@@ -606,17 +655,20 @@ class ProfilePostCardState extends State<ProfilePostCard> {
                       style: const TextStyle(fontSize: 13),
                     ),
                   ),
-              
-        
                 IconButton(
                   icon: Iconify(
-                    post.isShared ? Ph.paper_plane_tilt_fill : Ph.paper_plane_tilt,
+                    post.isShared
+                        ? Ph.paper_plane_tilt_fill
+                        : Ph.paper_plane_tilt,
                     size: 24,
                     color: post.isShared ? Colors.blue : null,
                   ),
                   onPressed: () {
-                    showPlaneSharePopup(context, shareLink: 'https://ifeed.app/p/${post.id}');
-                  },  //Action 
+                    showPlaneSharePopup(
+                      context,
+                      shareLink: 'https://ifeed.app/p/${post.id}',
+                    );
+                  },
                 ),
               ],
             ),
@@ -627,9 +679,6 @@ class ProfilePostCardState extends State<ProfilePostCard> {
     );
   }
 }
-
-
-
 
 class _ProfilePostMedia extends StatelessWidget {
   const _ProfilePostMedia({required this.items});
@@ -642,65 +691,70 @@ class _ProfilePostMedia extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // auto aspect like mainfeed
     const baseAspect = 9 / 12;
 
-    return LayoutBuilder(builder: (context, c) {
-      final contentW = c.maxWidth - _side * 2;
-      final naturalH = contentW / baseAspect;
-      final maxH = MediaQuery.of(context).size.height * _maxScreenFraction;
-      final h = naturalH.clamp(_minH, maxH);
+    return LayoutBuilder(
+      builder: (context, c) {
+        final contentW = c.maxWidth - _side * 2;
+        final naturalH = contentW / baseAspect;
+        final maxH = MediaQuery.of(context).size.height * _maxScreenFraction;
+        final h = naturalH.clamp(_minH, maxH);
 
-      if (items.length == 1) {
-        final m = items.first;
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: _side),
-          child: SizedBox(
-            height: h,
-            child: _RoundedTile(m: m, aspect: baseAspect),
-          ),
-        );
-      }
-
-      // handle exactly 2 items
-      if (items.length == 1) {
-        const aspect2 = 9 / 12;
-        final perTileW = (contentW - _gap) / 2;
-        final rowH = (perTileW / aspect2).clamp(_minH, maxH);
-
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: _side),
-          child: SizedBox(
-            height: rowH,
-            child: Row(
-              children: [
-                Expanded(child: _RoundedTile(m: items[0], aspect: aspect2)),
-                const SizedBox(width: _gap),
-                Expanded(child: _RoundedTile(m: items[1], aspect: aspect2)),
-              ],
-            ),
-          ),
-        );
-      }
-
-      return SizedBox(
-        height: h,
-        child: ListView.separated(
-          padding: const EdgeInsets.symmetric(horizontal: _side),
-          scrollDirection: Axis.horizontal,
-          physics: const BouncingScrollPhysics(),
-          itemCount: items.length,
-          separatorBuilder: (_, __) => const SizedBox(width: _gap),
-          itemBuilder: (_, i) {
-            final m = items[i];
-            return SizedBox(
-              width: h * baseAspect,
+        if (items.length == 1) {
+          final m = items.first;
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: _side),
+            child: SizedBox(
+              height: h,
               child: _RoundedTile(m: m, aspect: baseAspect),
-            );
-          },
-        ),
-      );
-    });
+            ),
+          );
+        }
+
+        // exactly 2 items
+        if (items.length == 2) {
+          const aspect2 = 9 / 12;
+          final perTileW = (contentW - _gap) / 2;
+          final rowH = (perTileW / aspect2).clamp(_minH, maxH);
+
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: _side),
+            child: SizedBox(
+              height: rowH,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _RoundedTile(m: items[0], aspect: aspect2),
+                  ),
+                  const SizedBox(width: _gap),
+                  Expanded(
+                    child: _RoundedTile(m: items[1], aspect: aspect2),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        return SizedBox(
+          height: h,
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: _side),
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            itemCount: items.length,
+            separatorBuilder: (_, __) => const SizedBox(width: _gap),
+            itemBuilder: (_, i) {
+              final m = items[i];
+              return SizedBox(
+                width: h * baseAspect,
+                child: _RoundedTile(m: m, aspect: baseAspect),
+              );
+            },
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -717,8 +771,8 @@ class _RoundedTile extends StatelessWidget {
         aspectRatio: aspect,
         child: m.type == PMediaType.image
             ? (m.isNetwork
-                ? Image.network(m.path, fit: BoxFit.cover)
-                : Image.file(File(m.path), fit: BoxFit.cover))
+                  ? Image.network(m.path, fit: BoxFit.cover)
+                  : Image.file(File(m.path), fit: BoxFit.cover))
             : _CoverVideo(path: m.path, isNetwork: m.isNetwork),
       ),
     );
@@ -726,6 +780,7 @@ class _RoundedTile extends StatelessWidget {
 }
 
 /// Small inline video (tap to play/pause)
+
 class _CoverVideo extends StatefulWidget {
   final String path;
   final bool isNetwork;
@@ -784,7 +839,9 @@ class _CoverVideoState extends State<_CoverVideo> {
                 )
               : const ColoredBox(
                   color: Colors.black12,
-                  child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  child: Center(
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
                 ),
         ),
         Positioned.fill(
@@ -840,14 +897,18 @@ class _AddButton extends StatelessWidget {
       child: Container(
         width: 50,
         height: 40,
-        decoration: BoxDecoration(color: Colors.grey, borderRadius: BorderRadius.circular(10)),
-        child: const Iconify(Teenyicons.add_small_outline, color: Color.fromARGB(255, 112, 111, 111)),
+        decoration: BoxDecoration(
+          color: Colors.grey,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Iconify(
+          Teenyicons.add_small_outline,
+          color: Color.fromARGB(255, 112, 111, 111),
+        ),
       ),
     );
   }
 }
-
-
 
 class _SmallStat extends StatelessWidget {
   final String label;
