@@ -5,11 +5,12 @@ import 'package:iconify_flutter/iconify_flutter.dart';
 import 'package:iconify_flutter/icons/uil.dart';
 import 'package:iconify_flutter/icons/ph.dart';
 import 'login.dart'; // adjust path if needed
-
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 import 'package:iconify_flutter/icons/material_symbols.dart';
 import 'package:colorful_iconify_flutter/icons/logos.dart';
-
 
 class SttingPage extends StatefulWidget {
   const SttingPage({super.key});
@@ -33,7 +34,7 @@ class _SttingPageState extends State<SttingPage> {
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.black87,
         leading: IconButton(
-          icon:  const Iconify(MaterialSymbols.arrow_back_ios),
+          icon: const Iconify(MaterialSymbols.arrow_back_ios),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
@@ -55,8 +56,10 @@ class _SttingPageState extends State<SttingPage> {
               children: [
                 // Header
                 Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 18,
+                  ),
                   child: Row(
                     children: const [
                       Text(
@@ -71,59 +74,72 @@ class _SttingPageState extends State<SttingPage> {
                 ),
                 const Divider(height: 1, color: Color(0xFFF1F1F1)),
 
-
-
                 // List body
                 Expanded(
                   child: ListView(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
                     children: [
-                   _SettingTile(
-  icon: const Iconify(Ph.bell_bold),
-  label: 'Notification',
-  labelFontSize: 16, // bigger font
-  trailing: CupertinoSwitch(
-    value: _notificationsOn,
-    onChanged: (v) => setState(() => _notificationsOn = v),
-  ),
-),
+                      _SettingTile(
+                        icon: const Iconify(Ph.bell_bold),
+                        label: 'Notification',
+                        labelFontSize: 16, // bigger font
+                        trailing: CupertinoSwitch(
+                          value: _notificationsOn,
+                          onChanged: (v) =>
+                              setState(() => _notificationsOn = v),
+                        ),
+                      ),
 
                       _SettingTile(
                         icon: const Iconify(Ph.heart_bold),
                         label: 'Liked',
-                         labelFontSize: 15, 
-                        onTap: () {/* TODO: open Liked */},
+                        labelFontSize: 15,
+                        onTap: () {
+                          /* TODO: open Liked */
+                        },
                       ),
                       _SettingTile(
                         icon: const Iconify(Ph.lock_bold),
                         label: 'Privacy',
-                         labelFontSize: 15, 
-                        onTap: () {/* TODO: open Privacy */},
+                        labelFontSize: 15,
+                        onTap: () {
+                          /* TODO: open Privacy */
+                        },
                       ),
                       _SettingTile(
                         icon: const Iconify(Ph.user_circle_bold),
                         label: 'Profile Account',
-                         labelFontSize: 15, 
-                        onTap: () {/* TODO: open Profile Account */},
+                        labelFontSize: 15,
+                        onTap: () {
+                          /* TODO: open Profile Account */
+                        },
                       ),
                       _SettingTile(
                         icon: const Iconify(Ph.chat_circle_text),
                         label: 'Help',
                         labelFontSize: 15, // bigger font
-                        onTap: () {/* TODO: open Help */},
+                        onTap: () {
+                          /* TODO: open Help */
+                        },
                       ),
                       _SettingTile(
                         icon: const Iconify(Uil.users_alt),
                         label: 'Invite Friend',
                         labelFontSize: 15,
-                        onTap: () {/* TODO: invite flow */},
+                        onTap: () {
+                          /* TODO: invite flow */
+                        },
                       ),
                       _SettingTile(
                         icon: const Iconify(Ph.link_bold),
                         label: 'Share Profile',
                         labelFontSize: 15,
-                        onTap: () {/* TODO: share profile */},
+                        onTap: () {
+                          /* TODO: share profile */
+                        },
                       ),
                       _SettingTile(
                         icon: const Iconify(Logos.google_icon),
@@ -147,7 +163,9 @@ class _SttingPageState extends State<SttingPage> {
                         icon: const Iconify(Ph.globe_hemisphere_east_bold),
                         label: 'Language',
                         labelFontSize: 15,
-                        onTap: () {/* TODO: language picker */},
+                        onTap: () {
+                          /* TODO: language picker */
+                        },
                       ),
                       _SettingTile(
                         icon: const Iconify(Ph.moon_bold),
@@ -194,8 +212,7 @@ class _SttingPageState extends State<SttingPage> {
                           labelFontSize: 15,
                           trailing: CupertinoSwitch(
                             value: _switchBottom,
-                            onChanged: (v) =>
-                                setState(() => _switchBottom = v),
+                            onChanged: (v) => setState(() => _switchBottom = v),
                           ),
                           onTap: () =>
                               setState(() => _switchBottom = !_switchBottom),
@@ -213,29 +230,40 @@ class _SttingPageState extends State<SttingPage> {
                           decoration: BoxDecoration(
                             color: const Color.fromARGB(255, 255, 255, 255),
                             borderRadius: BorderRadius.circular(38),
-                            border: Border.all(
-                              color:  Colors.grey,
-                              width: 2,
-                            ),
+                            border: Border.all(color: Colors.grey, width: 2),
                           ),
-                            child: const Iconify(
-      MaterialSymbols.logout_rounded,
-      size: 18,
-      color: Color(0xFFFF4B4B),
-    ),
-  ),
-  label: 'Logout',
-  labelStyle: const TextStyle(
-    color: Color.fromARGB(255, 0, 0, 0),
-    fontWeight: FontWeight.w600,
-  ),
-  onTap: () {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) =>  LoginScreen()),
-    );
-  },
-),
+                          child: const Iconify(
+                            MaterialSymbols.logout_rounded,
+                            size: 18,
+                            color: Color(0xFFFF4B4B),
+                          ),
+                        ),
+                        label: 'Logout',
+                        labelStyle: const TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        onTap: () async {
+                          //  First, sign out of Firebase
+                          await FirebaseAuth.instance.signOut();
+
+                          // (Optional) If user logged in with Google, sign out there too
+                          try {
+                            await GoogleSignIn().signOut();
+                          } catch (_) {}
+
+                          if (!context.mounted) return;
+
+                          //  Then navigate to LoginScreen and clear navigation history
+                          Navigator.of(context).pushAndRemoveUntil(
+                            MaterialPageRoute(
+                              builder: (_) => const LoginScreen(),
+                            ),
+                            (route) => false,
+                          );
+                        },
+                      ),
+
                       const SizedBox(height: 15),
                     ],
                   ),
@@ -248,8 +276,6 @@ class _SttingPageState extends State<SttingPage> {
     );
   }
 }
-
-
 
 /// Single slim row that matches the minimalist style in your mock.
 class _SettingTile extends StatelessWidget {
@@ -284,7 +310,8 @@ class _SettingTile extends StatelessWidget {
             Expanded(
               child: Text(
                 label,
-                style: labelStyle ??
+                style:
+                    labelStyle ??
                     TextStyle(
                       fontSize: labelFontSize, // use custom size
                       color: Colors.black87,
