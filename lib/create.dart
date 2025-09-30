@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:colorful_iconify_flutter/icons/logos.dart';
 import 'package:iconify_flutter/iconify_flutter.dart';
+import 'package:iconify_flutter/icons/uil.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -252,16 +253,26 @@ class _CreateScreenState extends State<CreateScreen> {
             decoration: const BoxDecoration(color: Colors.white),
             child: Column(
               mainAxisSize: MainAxisSize.min,
+
+              //Logo App
               children: [
-                const Text(
-                  'iFeed',
-                  style: TextStyle(
-                    fontSize: 40,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF19A53A),
+                Container(
+                  padding: const EdgeInsets.all(15),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.rectangle,
+                    borderRadius: BorderRadius.circular(12),
+                    color: const Color.fromARGB(255, 36, 231, 19),
+                    border: Border.all(
+                      color: const Color.fromARGB(255, 36, 231, 19),
+                      width: 2,
+                    ),
+                  ),
+                  child: const Iconify(
+                    Uil.comment,
+                    size: 38,
+                    color: Colors.white,
                   ),
                 ),
-                const SizedBox(height: 22),
 
                 // Google button
                 OutlinedButton.icon(
@@ -426,7 +437,7 @@ class _CreateScreenState extends State<CreateScreen> {
                       TextField(
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
-                        decoration: _boxDecoration('Email'),
+                        decoration: _boxDecoration('Email/Phone'),
                       ),
                       const SizedBox(height: 12),
 
