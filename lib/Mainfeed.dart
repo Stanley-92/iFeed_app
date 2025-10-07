@@ -13,10 +13,11 @@ import 'package:iconify_flutter/icons/teenyicons.dart';
 import 'package:iconify_flutter/icons/uil.dart';
 import 'package:iconify_flutter/icons/tabler.dart';
 import 'package:iconify_flutter/icons/ri.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'services/post_service.dart';
 
 //Firebase and Google
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 import 'share_popup.dart';
 import 'package:image_picker/image_picker.dart';

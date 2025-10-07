@@ -1,4 +1,5 @@
 // lib/create.dart
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:colorful_iconify_flutter/icons/logos.dart';
 import 'package:iconify_flutter/iconify_flutter.dart';
@@ -7,9 +8,10 @@ import 'package:iconify_flutter/icons/uil.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:http/http.dart' as http;
 
 import 'package:ifeed/profile.dart';
-import 'verify.dart'; // keep if you still use it elsewhere
+import 'verify.dart';
 
 class CreateScreen extends StatefulWidget {
   const CreateScreen({super.key});
@@ -18,21 +20,24 @@ class CreateScreen extends StatefulWidget {
 }
 
 class _CreateScreenState extends State<CreateScreen> {
-  // Name
+  //Helper
+
+  // Backend base (Render)
+  static const String BACKEND_URL = "https://ifeed-backend.onrender.com";
+
+  // Controllers
   final _firstController = TextEditingController();
   final _lastController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
 
-  // DOB — use valid defaults
+  // DOB
   late String _day;
   late String _month;
   late String _year;
 
   // Gender
   String _gender = 'Female';
-
-  // Contact + password
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
 
   // UI state
   bool _loading = false;
@@ -42,7 +47,7 @@ class _CreateScreenState extends State<CreateScreen> {
   final _auth = FirebaseAuth.instance;
   final _db = FirebaseFirestore.instance;
 
-  // Dropdown helpers
+  // Dropdown lists
   List<String> get _days =>
       List.generate(31, (i) => (i + 1).toString().padLeft(2, '0'));
   List<String> get _months =>
@@ -59,6 +64,13 @@ class _CreateScreenState extends State<CreateScreen> {
     _day = now.day.toString().padLeft(2, '0');
     _month = now.month.toString().padLeft(2, '0');
     _year = now.year.toString();
+  }
+
+  // --- URL helper
+  String _url(String path) {
+    final base = BACKEND_URL.replaceFirst(RegExp(r'/+$'), '');
+    final p = path.startsWith('/') ? path : '/$path';
+    return '$base$p';
   }
 
   InputDecoration _boxDecoration(String hint) => InputDecoration(
@@ -78,7 +90,7 @@ class _CreateScreenState extends State<CreateScreen> {
   Widget _dobBox({required Widget child, double width = 112}) =>
       SizedBox(width: width, height: 40, child: child);
 
-  /// Ensure the Firebase user has a displayName (uses entered first/last if missing)
+  /// Ensure Firebase user has a displayName
   Future<void> _ensureDisplayName(User user) async {
     final entered = [
       _firstController.text.trim(),
@@ -92,28 +104,97 @@ class _CreateScreenState extends State<CreateScreen> {
     }
   }
 
-  /// Upsert user profile into Firestore (accepts optional override for displayName)
+  /// Upsert user profile into Firestore with stable createdAt (transaction)
   Future<void> _upsertUserDoc(User user, {String? displayName}) async {
+    final usersRef = _db.collection('users').doc(user.uid);
     final fallbackEnteredName = [
       _firstController.text.trim(),
       _lastController.text.trim(),
     ].where((s) => s.isNotEmpty).join(' ').trim();
 
-    await _db.collection('users').doc(user.uid).set({
-      'uid': user.uid,
-      'email': user.email,
-      'displayName': (displayName != null && displayName.isNotEmpty)
-          ? displayName
-          : (user.displayName?.trim().isNotEmpty == true
-                ? user.displayName
-                : fallbackEnteredName),
-      'photoURL': user.photoURL,
-      'dob': {'day': _day, 'month': _month, 'year': _year},
-      'gender': _gender,
-      'providerIds': user.providerData.map((p) => p.providerId).toList(),
-      'updatedAt': FieldValue.serverTimestamp(),
-      'createdAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(usersRef);
+      final base = {
+        'uid': user.uid,
+        'email': user.email,
+        'displayName': (displayName != null && displayName.isNotEmpty)
+            ? displayName
+            : (user.displayName?.trim().isNotEmpty == true
+                  ? user.displayName
+                  : fallbackEnteredName),
+        'photoURL': user.photoURL,
+        'dob': {'day': _day, 'month': _month, 'year': _year},
+        'gender': _gender,
+        'providerIds': user.providerData.map((p) => p.providerId).toList(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      if (snap.exists) {
+        tx.update(usersRef, base);
+      } else {
+        tx.set(usersRef, {...base, 'createdAt': FieldValue.serverTimestamp()});
+      }
+    });
+  }
+
+  // === Send 6-digit OTP via backend; returns success
+  Future<bool> _sendOtpToEmail({
+    required String uid,
+    required String email,
+  }) async {
+    try {
+      final uri = Uri.parse(_url('/send-otp'));
+      final resp = await http
+          .post(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'uid': uid, 'email': email}),
+          )
+          .timeout(const Duration(seconds: 20));
+
+      if (resp.statusCode == 200) {
+        debugPrint("✅ OTP request sent for $email");
+        return true;
+      } else {
+        debugPrint("❌ send-otp failed [${resp.statusCode}]: ${resp.body}");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to send code: ${resp.statusCode}')),
+          );
+        }
+        return false;
+      }
+    } catch (e) {
+      debugPrint("❌ send-otp error: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to send code: $e')));
+      }
+      return false;
+    }
+  }
+
+  // === Navigate to VerifyScreen; on success go to Profile
+  Future<void> _goToVerifyAndMaybeProfile({
+    required String uid,
+    required String email,
+  }) async {
+    if (!mounted) return;
+    final verified = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            VerifyScreen(uid: uid, email: email, backendUrl: BACKEND_URL),
+      ),
+    );
+
+    if (verified == true && mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const ProfileUserScreen()),
+      );
+    }
   }
 
   // ---------------- Google Sign-In ----------------
@@ -141,13 +222,19 @@ class _CreateScreenState extends State<CreateScreen> {
         await _ensureDisplayName(user);
         await user.reload();
         final refreshed = _auth.currentUser!;
+
         await _upsertUserDoc(refreshed);
 
-        if (!mounted) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const ProfileUserScreen()),
-        );
+        final email = refreshed.email ?? _emailController.text.trim();
+        if (email.isEmpty) {
+          setState(() => _error = 'Could not determine your email.');
+          return;
+        }
+
+        final ok = await _sendOtpToEmail(uid: refreshed.uid, email: email);
+        if (ok) {
+          await _goToVerifyAndMaybeProfile(uid: refreshed.uid, email: email);
+        }
       }
     } on FirebaseAuthException catch (e) {
       setState(() => _error = e.message ?? e.code);
@@ -167,8 +254,7 @@ class _CreateScreenState extends State<CreateScreen> {
 
     if (email.isEmpty || pass.length < 6) {
       setState(
-        () => _error =
-            'Please enter a valid email and a password with 6+ characters.',
+        () => _error = 'Please enter a valid email and password (6+ chars).',
       );
       return;
     }
@@ -191,22 +277,16 @@ class _CreateScreenState extends State<CreateScreen> {
       final user = cred.user;
 
       if (user != null) {
-        if (displayName.isNotEmpty) {
-          await user.updateDisplayName(displayName);
-        }
+        if (displayName.isNotEmpty) await user.updateDisplayName(displayName);
         await user.reload();
         final refreshed = _auth.currentUser!;
+
         await _upsertUserDoc(refreshed, displayName: displayName);
 
-        try {
-          await refreshed.sendEmailVerification();
-        } catch (_) {}
-
-        if (!mounted) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const ProfileUserScreen()),
-        );
+        final ok = await _sendOtpToEmail(uid: refreshed.uid, email: email);
+        if (ok) {
+          await _goToVerifyAndMaybeProfile(uid: refreshed.uid, email: email);
+        }
       }
     } on FirebaseAuthException catch (e) {
       String msg;
@@ -253,13 +333,11 @@ class _CreateScreenState extends State<CreateScreen> {
             decoration: const BoxDecoration(color: Colors.white),
             child: Column(
               mainAxisSize: MainAxisSize.min,
-
-              //Logo App
               children: [
+                // Logo
                 Container(
                   padding: const EdgeInsets.all(15),
                   decoration: BoxDecoration(
-                    shape: BoxShape.rectangle,
                     borderRadius: BorderRadius.circular(12),
                     color: const Color.fromARGB(255, 36, 231, 19),
                     border: Border.all(
@@ -274,6 +352,7 @@ class _CreateScreenState extends State<CreateScreen> {
                   ),
                 ),
                 const SizedBox(height: 20),
+
                 // Google button
                 OutlinedButton.icon(
                   onPressed: _loading ? null : _handleGoogle,
@@ -334,6 +413,7 @@ class _CreateScreenState extends State<CreateScreen> {
                           ),
                         ],
                       ),
+
                       const SizedBox(height: 18),
 
                       // DOB
@@ -399,6 +479,7 @@ class _CreateScreenState extends State<CreateScreen> {
                           ),
                         ],
                       ),
+
                       const SizedBox(height: 18),
 
                       // Gender
@@ -431,13 +512,14 @@ class _CreateScreenState extends State<CreateScreen> {
                           ),
                         ],
                       ),
+
                       const SizedBox(height: 14),
 
                       // Email
                       TextField(
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
-                        decoration: _boxDecoration('Email/Phone'),
+                        decoration: _boxDecoration('Email'),
                       ),
                       const SizedBox(height: 12),
 
