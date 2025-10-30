@@ -39,29 +39,34 @@ class _LoginScreenState extends State<LoginScreen> {
     }, SetOptions(merge: true));
   }
 
+  //Loign Fail
   Future<void> _loginWithEmail() async {
     final email = _email.text.trim();
     final pass = _password.text;
 
     if (email.isEmpty || pass.isEmpty) {
-      setState(() => _error = 'Please fill in both email and password.');
+      if (mounted)
+        setState(() => _error = 'Please fill in both email and password.');
       return;
     }
 
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
     try {
       final cred = await _auth.signInWithEmailAndPassword(
         email: email,
         password: pass,
       );
+
       final user = cred.user;
       if (user != null) {
-        await _upsertUserDoc(user); // safe no-op if doc exists
-        if (!mounted) return;
+        await _upsertUserDoc(user);
+        if (!mounted) return; // ensure still in tree before navigating
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const MainfeedScreen()),
@@ -85,9 +90,10 @@ class _LoginScreenState extends State<LoginScreen> {
         default:
           msg = e.message ?? e.code;
       }
-      setState(() => _error = msg);
+
+      if (mounted) setState(() => _error = msg);
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
     }
