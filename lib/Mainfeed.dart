@@ -37,7 +37,7 @@ const String defaultAvatarAsset = 'assets/images/default_avatar.png';
 
 void main() => runApp(const MaterialApp(home: MainfeedScreen()));
 
-/// ======================= STORY MODELS (multi-item) =======================
+///======================= STORY MODELS (multi-item) =======================
 class Story {
   Story({required this.id, required this.name, required this.items});
 
@@ -1664,7 +1664,6 @@ class _BarIcon extends StatelessWidget {
 }
 
 /// ======================= UPLOAD PAGE =======================
-/// ======================= UPLOAD PAGE =======================
 class UploadPostPage extends StatefulWidget {
   const UploadPostPage({super.key});
   @override
@@ -1708,7 +1707,8 @@ class _UploadPostPageState extends State<UploadPostPage> {
     });
   }
 
-  /// Fetch current user's displayName/photo from Firestore (fallback to Auth)
+  // Fetch current user's displayName/photo from Firestore
+
   Future<({String name, String? avatar})> _getCurrentProfile() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw Exception('Not signed in');
