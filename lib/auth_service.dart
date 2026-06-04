@@ -43,7 +43,7 @@ Future<User?> signInWithGoogle() async {
     if (googleUser == null) return null; // user cancelled
     final googleAuth = await googleUser.authentication;
     final credential = GoogleAuthProvider.credential(
-      accessToken: googleAuth.accessToken, idToken: googleAuth.idToken);
+    accessToken: googleAuth.accessToken, idToken: googleAuth.idToken);
     final cred = await _auth.signInWithCredential(credential);
     final user = cred.user;
     if (user != null) await _ensureUserDoc(user);
