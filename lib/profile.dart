@@ -770,10 +770,32 @@ class _RoundedTile extends StatelessWidget {
       child: AspectRatio(
         aspectRatio: aspect,
         child: m.type == PMediaType.image
-            ? (m.isNetwork
-                  ? Image.network(m.path, fit: BoxFit.cover)
-                  : Image.file(File(m.path), fit: BoxFit.cover))
-            : _CoverVideo(path: m.path, isNetwork: m.isNetwork),
+    ? (m.isNetwork
+          ? Image.network(
+              m.path,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                print('PROFILE BROKEN IMAGE: ${m.path}');
+                return Container(
+                  color: Colors.grey.shade200,
+                  child: const Center(
+                    child: Icon(
+                      Icons.broken_image,
+                      size: 50,
+                      color: Colors.grey,
+                    ),
+                  ),
+                );
+              },
+            )
+          : Image.file(
+              File(m.path),
+              fit: BoxFit.cover,
+            ))
+    : _CoverVideo(
+        path: m.path,
+        isNetwork: m.isNetwork,
+      ),
       ),
     );
   }
