@@ -174,15 +174,28 @@ class _ShareCard extends StatelessWidget {
                         
                           ),
                           child: ClipOval(
-                            child: t.avatarUrl.isEmpty
-                                ? const Center(
-                                    child: Iconify(
-                                      LineMd.account,
-                                      size: 26,
-                                      color: Color.fromARGB(137, 3, 3, 3),
-                                    ),
-                                  )
-                                : Image.network(t.avatarUrl, fit: BoxFit.cover),
+                          child: t.avatarUrl.isEmpty
+    ? const Center(
+        child: Iconify(
+          LineMd.account,
+          size: 26,
+          color: Color.fromARGB(137, 3, 3, 3),
+        ),
+      )
+    : Image.network(
+        t.avatarUrl,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          print('SHARE AVATAR BROKEN: ${t.avatarUrl}');
+          return const Center(
+            child: Iconify(
+              LineMd.account,
+              size: 26,
+              color: Color.fromARGB(137, 3, 3, 3),
+            ),
+          );
+        },
+      ),
                           ),
                         );
 
