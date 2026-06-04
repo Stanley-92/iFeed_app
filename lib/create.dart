@@ -341,7 +341,7 @@ class _CreateScreenState extends State<CreateScreen> {
       backgroundColor: Colors.white,
       body: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
+          constraints: const BoxConstraints(maxWidth: 500),
           child: Container(
             margin: const EdgeInsets.symmetric(vertical: 24, horizontal: 12),
             padding: const EdgeInsets.symmetric(vertical: 24),

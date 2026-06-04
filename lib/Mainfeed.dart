@@ -38,10 +38,6 @@ const String defaultAvatarAsset = 'assets/images/default_avatar.png';
 
 void main() => runApp(const MaterialApp(home: MainfeedScreen()));
 
-
-
-
-
 ///======================= STORY MODELS (multi-item) =======================
 class Story {
   Story({required this.id, required this.name, required this.items});
@@ -726,7 +722,7 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
             // -------------------- Feed --------------------
             SliverList(
               delegate: SliverChildBuilderDelegate(
-                (context, i) { 
+                (context, i) {
                   if (i.isOdd) return const SizedBox(height: 30);
                   final index = i ~/ 2;
                   if (index >= _feedPosts.length) return null;
@@ -1301,24 +1297,23 @@ void _showPostMenu(
                     iconify: Ph.trash_simple_bold,
                     label: 'Delete',
                     danger: true,
-                   onTap: () async {
-  Navigator.pop(context);
+                    onTap: () async {
+                      Navigator.pop(context);
 
-  print('DELETE CLICKED');
+                      print('DELETE CLICKED');
 
-  try {
-    print('BEFORE onDelete');
+                      try {
+                        print('BEFORE onDelete');
 
-    await onDelete(
-      post.id,
-      post.media.map((m) => m.path).toList(),
-    );
+                        await onDelete(
+                          post.id,
+                          post.media.map((m) => m.path).toList(),
+                        );
 
-    print('AFTER onDelete');
-
-  } catch (e) {
-    print('Delete failed: $e');
-  }
+                        print('AFTER onDelete');
+                      } catch (e) {
+                        print('Delete failed: $e');
+                      }
                     },
                   ),
                 ],
@@ -1630,27 +1625,24 @@ class _RoundedTile extends StatelessWidget {
             aspectRatio: aspect,
             child: (m.type == MediaType.image)
                 ? (m.isNetwork
-                        ? Image.network(
-                m.path,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  print('BROKEN IMAGE: ${m.path}');
-                  return const SizedBox.shrink();
-                },
-              )
-            : Image.file(
-                File(m.path),
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return const SizedBox.shrink();
-                },
-              ))
-      : _CoverVideo(
-          path: m.path,
-          isNetwork: m.isNetwork,
+                      ? Image.network(
+                          m.path,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            print('BROKEN IMAGE: ${m.path}');
+                            return const SizedBox.shrink();
+                          },
+                        )
+                      : Image.file(
+                          File(m.path),
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return const SizedBox.shrink();
+                          },
+                        ))
+                : _CoverVideo(path: m.path, isNetwork: m.isNetwork),
+          ),
         ),
-        ),
-        )
       ),
     );
   }
