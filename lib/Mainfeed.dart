@@ -7,7 +7,6 @@ import 'package:iconify_flutter/icons/mdi.dart';
 import 'package:iconify_flutter/icons/ph.dart';
 import 'package:iconify_flutter/icons/material_symbols.dart';
 import 'package:iconify_flutter/icons/ion.dart';
-import 'package:iconify_flutter/icons/fa.dart';
 import 'package:iconify_flutter/icons/gg.dart';
 import 'package:iconify_flutter/icons/teenyicons.dart';
 import 'package:iconify_flutter/icons/uil.dart';
@@ -15,6 +14,8 @@ import 'package:iconify_flutter/icons/tabler.dart';
 import 'package:iconify_flutter/icons/ri.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'services/post_service.dart';
+import 'services/like_service.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 
 //Firebase and Google
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -88,29 +89,181 @@ class MainfeedScreen extends StatefulWidget {
   State<MainfeedScreen> createState() => _MainfeedScreenState();
 }
 
+//Helper Story Avatar Widget
+Future<String> _getMyAvatar() async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return '';
+
+  final doc = await FirebaseFirestore.instance
+      .collection('users')
+      .doc(user.uid)
+      .get();
+
+  final data = doc.data();
+
+  return data?['photoURL'] ?? user.photoURL ?? '';
+}
+
+// Helper Story Name Widget
+Future<String> _getMyName() async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return 'User';
+
+  final doc = await FirebaseFirestore.instance
+      .collection('users')
+      .doc(user.uid)
+      .get();
+
+  final data = doc.data();
+
+  return data?['displayName'] ?? user.displayName ?? 'User';
+}
+
+// Helper Story Name + Avatar Widget
+Future<({String name, String? avatar})> _getMyProfile() async {
+  return (name: await _getMyName(), avatar: await _getMyAvatar());
+}
+
 class _MainfeedScreenState extends State<MainfeedScreen> {
   final List<_Post> _feedPosts = [];
   final List<ReelItem> _reels = <ReelItem>[];
 
   final ImagePicker _storyPicker = ImagePicker();
+
   Story? myStory;
 
-  late List<Story> stories = List.generate(
-    8,
-    (i) => Story(
-      id: 'rem_$i',
-      name: _names[i % _names.length],
-      items: [
-        StoryItem(
-          isVideo: false,
-          isLocal: false,
-          url: _avatars[i % _avatars.length],
-        ),
-      ],
-    ),
-  );
+  // Stories loaded from Firestore
+  List<Story> stories = [];
 
   String _feedTab = 'for_you';
+
+  @override
+  void initState() {
+    super.initState();
+
+    loadPosts();
+    loadStories();
+  }
+
+  // Load posts from Firestore and convert to _Post model Funtion
+  Future<void> loadPosts() async {
+    final snap = await FirebaseFirestore.instance
+        .collection('posts')
+        .orderBy('createdAt', descending: true)
+        .get();
+
+    final posts = snap.docs
+        .map((doc) {
+          final data = doc.data();
+
+          final mediaUrls = List<String>.from(data['media'] ?? []);
+
+          if (mediaUrls.isEmpty) {
+            return null;
+          }
+
+          return _Post(
+            id: doc.id,
+            username: data['authorName'] ?? 'User',
+            avatar: data['authorAvatar'] ?? '',
+            time: 'just now',
+            caption: data['caption'] ?? '',
+            likeCount: data['likeCount'] ?? 0,
+            commentCount: data['commentCount'] ?? 0,
+            media: mediaUrls.map((url) {
+              return _FeedMedia(
+                path: url,
+                type: MediaType.image,
+                isNetwork: true,
+              );
+            }).toList(),
+          );
+        })
+        .whereType<_Post>()
+        .toList();
+
+    setState(() {
+      _feedPosts.clear();
+      _feedPosts.addAll(posts);
+    });
+  }
+
+  // Load stories from Firestore and convert to Story model Function
+  Future<void> loadStories() async {
+    final snap = await FirebaseFirestore.instance
+        .collection('stories')
+        .orderBy('createdAt', descending: true)
+        .get();
+
+    final loadedStories = snap.docs.map((doc) {
+      final data = doc.data();
+
+      return Story(
+        id: doc.id,
+        name: data['displayName'] ?? 'User',
+        items: [
+          StoryItem(
+            isVideo: data['isVideo'] ?? false,
+            isLocal: false,
+            url: data['mediaUrl'],
+            caption: data['caption'],
+          ),
+        ],
+      );
+    }).toList();
+
+    setState(() {
+      stories = loadedStories;
+    });
+  }
+
+  //Post deletion function that removes the post document from Firestore and deletes associated media from Firebase Storage. It also updates the local feed state to reflect the deletion immediately.
+  Future<void> deletePost({
+    required String postId,
+    required List<String> mediaUrls,
+  }) async {
+    try {
+      // Delete Storage files
+      for (final url in mediaUrls) {
+        try {
+          await FirebaseStorage.instance.refFromURL(url).delete();
+        } catch (_) {}
+      }
+
+      // Delete Firestore document
+      await FirebaseFirestore.instance.collection('posts').doc(postId).delete();
+
+      // Remove from UI immediately
+      setState(() {
+        _feedPosts.removeWhere((p) => p.id == postId);
+      });
+
+      print('Post deleted successfully');
+    } catch (e) {
+      print('Delete error: $e');
+    }
+  }
+
+  Future<({String name, String? avatar})> _getCurrentProfile() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw Exception('Not signed in');
+
+    final snap = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get();
+
+    final data = snap.data();
+
+    final name = (data?['displayName'] as String?)?.trim().isNotEmpty == true
+        ? (data!['displayName'] as String).trim()
+        : (user.displayName ??
+              (user.email != null ? user.email!.split('@').first : 'User'));
+
+    final avatar = (data?['photoURL'] as String?) ?? user.photoURL;
+
+    return (name: name, avatar: avatar);
+  }
 
   bool _isVideoPath(String p) {
     final s = p.toLowerCase();
@@ -250,7 +403,7 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
     );
   }
 
-  /// ----- Posts -----
+  // For simplicity, this adds new posts only to the local feed (no Firebase upload).
   Future<void> _handleAddPost(BuildContext context) async {
     final model.Post? newPost = await Navigator.push<model.Post>(
       context,
@@ -334,17 +487,43 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
   }
 
   Future<void> _openComments(_Post post) async {
+    final user = FirebaseAuth.instance.currentUser;
+
+    String currentUserName = 'User';
+    String currentUserAvatar = '';
+
+    if (user != null) {
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+
+        final data = doc.data();
+
+        currentUserName = data?['displayName'] ?? user.displayName ?? 'User';
+
+        currentUserAvatar = data?['photoURL'] ?? user.photoURL ?? '';
+      } catch (e) {
+        print('Error loading profile: $e');
+      }
+    }
+
     final updated = await Navigator.push<List<reply.Comment>>(
       context,
       MaterialPageRoute(
         builder: (_) => reply.CommentsPage(
+          postId: post.id,
           postAuthorName: post.username,
           postAuthorAvatar: _replyHeaderAvatar(post.avatar),
           postTimeText: post.time,
           postText: post.caption,
           postMedia: _toReplyMedia(post.media),
-          currentUserName: 'sinayun_xyn',
-          currentUserAvatar: 'https://i.pravatar.cc/100?img=32',
+
+          // Use Firebase profile data
+          currentUserName: currentUserName,
+          currentUserAvatar: currentUserAvatar,
+
           initialComments: post.comments,
           showAvatars: true,
         ),
@@ -353,8 +532,9 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
 
     if (updated != null) {
       setState(() {
-        post.comments = updated;
-        post.commentCount = updated.length;
+        post.comments
+          ..clear()
+          ..addAll(updated);
       });
     }
   }
@@ -420,6 +600,7 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
               ),
             ),
           ),
+
           Padding(
             padding: const EdgeInsets.only(right: 14),
             child: InkWell(
@@ -429,9 +610,9 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
                 MaterialPageRoute(builder: (_) => const lc.ChatListScreen()),
               ),
               child: const Iconify(
-                Fa.envelope,
+                Uil.comment,
                 color: Color.fromARGB(221, 89, 96, 112),
-                size: 28,
+                size: 40,
               ),
             ),
           ),
@@ -452,38 +633,58 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 30),
                     scrollDirection: Axis.horizontal,
                     itemBuilder: (_, i) {
+                      // The first item is always the user's own story (or "Add Story" if no story yet)
                       if (i == 0) {
-                        return Column(
-                          children: [
-                            GestureDetector(
-                              onTap: () =>
-                                  my == null ? _addStory() : _openStory(my),
-                              child: StoryRing.fromProvider(
-                                imageProvider:
-                                    myProvider ?? NetworkImage(_avatars.first),
-                                isVideo: myIsVideo,
-                                showPlus: true,
-                                onPlusTap: _addStory,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            const SizedBox(
-                              width: 70,
-                              child: Text(
-                                'Your story',
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(fontSize: 11),
-                              ),
-                            ),
-                          ],
+                        return FutureBuilder<({String name, String? avatar})>(
+                          future: _getMyProfile(),
+                          builder: (context, snapshot) {
+                            final myName = snapshot.data?.name ?? 'Your story';
+                            final myAvatar = snapshot.data?.avatar ?? '';
+
+                            return Column(
+                              children: [
+                                GestureDetector(
+                                  onTap: () =>
+                                      my == null ? _addStory() : _openStory(my),
+                                  child: StoryRing.fromProvider(
+                                    imageProvider: myAvatar.isNotEmpty
+                                        ? NetworkImage(myAvatar)
+                                        : (myProvider ??
+                                              NetworkImage(_avatars.first)),
+                                    isVideo: myIsVideo,
+                                    showPlus: true,
+                                    onPlusTap: _addStory,
+                                  ),
+                                ),
+
+                                const SizedBox(height: 8),
+
+                                SizedBox(
+                                  width: 70,
+                                  child: Text(
+                                    myName,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(fontSize: 11),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         );
                       }
+                      // Other items are friends' stories
 
-                      final s = stories[(i - 1) % stories.length];
+                      if (stories.isEmpty) {
+                        return const SizedBox.shrink();
+                      }
+
+                      // -1 because of "Add Story" item at index 0
+                      final s = stories[i - 1];
+
                       final imgProvider =
                           s.coverImageProvider ??
-                          NetworkImage(_avatars[(i - 1) % _avatars.length]);
+                          const AssetImage('assets/images/default_avatar.png');
 
                       return Column(
                         children: [
@@ -521,20 +722,55 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
             // -------------------- Feed --------------------
             SliverList(
               delegate: SliverChildBuilderDelegate(
-                (context, i) {
+                (context, i) { 
                   if (i.isOdd) return const SizedBox(height: 30);
                   final index = i ~/ 2;
                   if (index >= _feedPosts.length) return null;
                   final post = _feedPosts[index];
+
                   return _PostCard(
                     post: post,
                     onOpenComments: () => _openComments(post),
-                    onLike: () {
-                      setState(() {
-                        post.isLiked = !post.isLiked;
-                        post.isLiked ? post.likeCount++ : post.likeCount--;
-                      });
+
+                    //LIke Icon
+                    onLike: () async {
+                      if (!post.isLiked) {
+                        // Update UI immediately
+                        setState(() {
+                          post.isLiked = true;
+                          post.likeCount++;
+                        });
+
+                        print("LIKE COUNT = ${post.likeCount}");
+
+                        try {
+                          await LikeService().likePost(post.id);
+                        } catch (e) {
+                          // Rollback if Firebase fails
+                          setState(() {
+                            post.isLiked = false;
+                            post.likeCount--;
+                          });
+                        }
+                      } else {
+                        setState(() {
+                          post.isLiked = false;
+                          post.likeCount--;
+                        });
+
+                        print("LIKE COUNT = ${post.likeCount}");
+
+                        try {
+                          await LikeService().unlikePost(post.id);
+                        } catch (e) {
+                          setState(() {
+                            post.isLiked = true;
+                            post.likeCount++;
+                          });
+                        }
+                      }
                     },
+
                     onShare: () =>
                         setState(() => post.isShared = !post.isShared),
                     onRepost: () => setState(() => post.shareCount++),
@@ -772,6 +1008,7 @@ class _CommentsPreview extends StatelessWidget {
                       ),
                     ],
                   ),
+
                   const SizedBox(height: 1),
                   Row(
                     children: [
@@ -859,9 +1096,10 @@ class _PostCard extends StatelessWidget {
                 CircleAvatar(
                   radius: 25,
                   backgroundImage: _avatarProvider(post.avatar),
-                  onBackgroundImageError: (_, __) {},
                 ),
+
                 const SizedBox(width: 18),
+
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -883,14 +1121,27 @@ class _PostCard extends StatelessWidget {
                     ],
                   ),
                 ),
+
                 IconButton(
                   icon: const Iconify(Mdi.dots_horizontal, size: 24),
-                  onPressed: () => _showPostMenu(context, post),
+                  onPressed: () =>
+                      _showPostMenu(context, post, (postId, mediaUrls) async {
+                        final state = context
+                            .findAncestorStateOfType<_MainfeedScreenState>();
+
+                        if (state != null) {
+                          await state.deletePost(
+                            postId: postId,
+                            mediaUrls: mediaUrls,
+                          );
+
+                          await state.loadPosts();
+                        }
+                      }),
                 ),
               ],
             ),
           ),
-
           // Caption
           if (post.caption.isNotEmpty)
             Padding(
@@ -908,7 +1159,7 @@ class _PostCard extends StatelessWidget {
           // Media
           if (post.media.isNotEmpty) _PostMedia(post: post, reels: reels),
 
-          // Actions
+          // Actions Icon Row like comment share
           Padding(
             padding: const EdgeInsets.fromLTRB(88, 0, 18, 0),
             child: Row(
@@ -965,6 +1216,7 @@ class _PostCard extends StatelessWidget {
                     color: post.isShared ? Colors.blue : null,
                   ),
                   onPressed: () {
+                    onShare();
                     showPlaneSharePopup(
                       context,
                       shareLink: 'https://ifeed.app/p/${post.id}',
@@ -989,7 +1241,11 @@ class _PostCard extends StatelessWidget {
   }
 }
 
-void _showPostMenu(BuildContext context, _Post post) {
+void _showPostMenu(
+  BuildContext context,
+  _Post post,
+  Future<void> Function(String, List<String>) onDelete,
+) {
   showModalBottomSheet(
     context: context,
     backgroundColor: Colors.transparent,
@@ -1041,7 +1297,25 @@ void _showPostMenu(BuildContext context, _Post post) {
                     iconify: Ph.trash_simple_bold,
                     label: 'Delete',
                     danger: true,
-                    onTap: () => Navigator.pop(context),
+                   onTap: () async {
+  Navigator.pop(context);
+
+  print('DELETE CLICKED');
+
+  try {
+    print('BEFORE onDelete');
+
+    await onDelete(
+      post.id,
+      post.media.map((m) => m.path).toList(),
+    );
+
+    print('AFTER onDelete');
+
+  } catch (e) {
+    print('Delete failed: $e');
+  }
+                    },
                   ),
                 ],
               ),
@@ -1186,8 +1460,8 @@ class _PostMedia extends StatelessWidget {
                                 : 'file://${media.path}',
                             caption: 'Reel',
                             music: 'Original Audio',
-                            avatarUrl: 'https://i.pravatar.cc/150?img=68',
-                            authorName: 'sinayun_xyn',
+                            avatarUrl: 'wigeth:.currentUserAvatar',
+                            authorName: 'wigeth:.currentUserName',
                             likes: 0,
                             comments: 0,
                           ),
@@ -1247,7 +1521,7 @@ class _PostMedia extends StatelessWidget {
         }
 
         // 2 tiles layout
-        if (post.media.length == 1) {
+        if (post.media.length == 2) {
           const aspect2 = 9 / 12;
           final perTileW = (contentW - _gap) / 2;
           final rowH = (perTileW / aspect2).clamp(_minH, maxH);
@@ -1352,11 +1626,27 @@ class _RoundedTile extends StatelessWidget {
             aspectRatio: aspect,
             child: (m.type == MediaType.image)
                 ? (m.isNetwork
-                      ? Image.network(m.path, fit: BoxFit.cover)
-                      : Image.file(File(m.path), fit: BoxFit.cover))
-                : _CoverVideo(path: m.path, isNetwork: m.isNetwork),
-          ),
+                        ? Image.network(
+                m.path,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  print('BROKEN IMAGE: ${m.path}');
+                  return const SizedBox.shrink();
+                },
+              )
+            : Image.file(
+                File(m.path),
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return const SizedBox.shrink();
+                },
+              ))
+      : _CoverVideo(
+          path: m.path,
+          isNetwork: m.isNetwork,
         ),
+        ),
+        )
       ),
     );
   }
@@ -1369,7 +1659,16 @@ class FillMedia extends StatelessWidget {
   Widget build(BuildContext context) {
     if (m.type == MediaType.image) {
       return m.isNetwork
-          ? Image.network(m.path, fit: BoxFit.contain)
+          ? Image.network(
+              m.path,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) {
+                print('BROKEN IMAGE: ${m.path}');
+                return const Center(
+                  child: Icon(Icons.broken_image, size: 60, color: Colors.grey),
+                );
+              },
+            )
           : Image.file(File(m.path), fit: BoxFit.contain);
     }
     return _CoverVideo(path: m.path, isNetwork: m.isNetwork);
@@ -1562,7 +1861,20 @@ class _ViewerPage extends StatelessWidget {
           minScale: 1,
           maxScale: 4,
           child: item.isNetwork
-              ? Image.network(item.path, fit: BoxFit.contain)
+              ? Image.network(
+                  item.path,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) {
+                    print('BROKEN VIEWER IMAGE: ${item.path}');
+                    return const Center(
+                      child: Icon(
+                        Icons.broken_image,
+                        size: 80,
+                        color: Colors.white,
+                      ),
+                    );
+                  },
+                )
               : Image.file(File(item.path), fit: BoxFit.contain),
         ),
       );
@@ -1882,10 +2194,21 @@ class _UploadPostPageState extends State<UploadPostPage> {
                         FilledButton(
                           onPressed: _canPost
                               ? () async {
-                                  // 🔥 Fetch current user profile here
+                                  //  Fetch current user profile here
+                                  final imageFiles = _media
+                                      .where((m) => m.type == MediaType.image)
+                                      .map((m) => m.file)
+                                      .toList();
+
+                                  final postId = await PostService().createPost(
+                                    caption: _text.text.trim(),
+                                    images: imageFiles,
+                                  );
+
+                                  print("Post uploaded to Firestore");
+
                                   final me = await _getCurrentProfile();
 
-                                  // Normalize picked media into your model
                                   final List<model.PostMedia> normalized =
                                       _media.map<model.PostMedia>((pm) {
                                         return pm.type == MediaType.video
@@ -1896,12 +2219,9 @@ class _UploadPostPageState extends State<UploadPostPage> {
                                       }).toList();
 
                                   final result = model.Post(
-                                    id: DateTime.now().millisecondsSinceEpoch
-                                        .toString(),
-                                    authorName: me.name, // ✅ dynamic name
-                                    authorAvatar:
-                                        me.avatar ??
-                                        '', // ✅ dynamic avatar (can be empty)
+                                    id: postId,
+                                    authorName: me.name,
+                                    authorAvatar: me.avatar ?? '',
                                     timeText: 'just now',
                                     caption: _text.text.trim(),
                                     media: normalized,
@@ -1912,6 +2232,7 @@ class _UploadPostPageState extends State<UploadPostPage> {
                                   Navigator.pop<model.Post>(context, result);
                                 }
                               : null,
+
                           child: const Text('Post'),
                         ),
                       ],
@@ -1989,7 +2310,7 @@ final _avatars = [
   "https://i.pravatar.cc/150?img=32",
 ];
 
-/// ======================= PREVIEW WRAP (upload page) =======================
+/// ======================= MEDIA PREVIEW WRAP (in upload page) =======================
 class _PreviewWrap extends StatelessWidget {
   final List<PickedMedia> media;
   final void Function(int index) onRemove;
