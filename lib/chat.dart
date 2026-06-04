@@ -43,6 +43,7 @@ class ChatState extends State<Chat> {
         id: UniqueKey().toString(),
         fromMe: true,
         text: text,
+        avatarUrl: 'currentUserAvatar',
       ));
       _controller.clear();
     });
@@ -155,6 +156,7 @@ class ChatState extends State<Chat> {
         fromMe: true,
         imageFile: isVideo ? null : File(x.path),
         videoFile: isVideo ? File(x.path) : null,
+        avatarUrl: 'currentUserAvatar',
       ));
     });
     _scrollToBottom();
@@ -168,6 +170,7 @@ class ChatState extends State<Chat> {
         id: UniqueKey().toString(),
         fromMe: true,
         imageFile: File(x.path),
+        avatarUrl: 'currentUserAvatar',
       ));
     });
     _scrollToBottom();
@@ -188,6 +191,7 @@ class ChatState extends State<Chat> {
         id: UniqueKey().toString(),
         fromMe: true,
         fileName: f.name,
+        avatarUrl: 'currentUserAvatar',
         filePath: f.path, // null on web; fine on mobile/desktop
       ));
     });
@@ -474,6 +478,7 @@ class _Header extends StatelessWidget {
 class ChatMessage {
   ChatMessage({
     required this.id,
+    required this.avatarUrl,
     required this.fromMe,
     this.text,
     this.imageUrl,
@@ -485,6 +490,7 @@ class ChatMessage {
   });
 
   final String id;
+  final String? avatarUrl; // for real app: to identify sender/receiver
   final bool fromMe;
   final String? text;
   final String? imageUrl;
@@ -635,7 +641,7 @@ class MessageBubble extends StatelessWidget {
         if (!isMe) ...[
           const AvatarSmall(
             url:
-                'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=300&q=60&auto=format&fit=crop',
+                'currentUserAvatar',
           ),
           const SizedBox(width: 8),
         ],
@@ -644,7 +650,7 @@ class MessageBubble extends StatelessWidget {
           const SizedBox(width: 8),
           const AvatarSmall(
             url:
-                'https://images.unsplash.com/photo-1519345182560-3f2917c472ef?w=300&q=60&auto=format&fit=crop',
+                'currentUserAvatar',
           ),
         ],
       ],
@@ -652,14 +658,21 @@ class MessageBubble extends StatelessWidget {
   }
 }
 
+
+/// ======= small avatar for messages (can be extended to show status) =======
 class AvatarSmall extends StatelessWidget {
-  const AvatarSmall({required this.url});
+  const AvatarSmall({super.key, required this.url});
+
   final String url;
+
   @override
   Widget build(BuildContext context) {
-    return const CircleAvatar(
+    return CircleAvatar(
       radius: 28,
-      backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=68'),
+      backgroundImage: url.isNotEmpty
+          ? NetworkImage(url)
+          : null,
+      child: url.isEmpty ? const Icon(Icons.person) : null,
     );
   }
 }
