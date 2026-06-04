@@ -20,5 +20,6 @@ Future<void> saveUserProfile({
     'gender'     : gender,
     'updatedAt'  : FieldValue.serverTimestamp(),
     'createdAt'  : FieldValue.serverTimestamp(), // only set first time
+   
   }, SetOptions(merge: true));
 }
