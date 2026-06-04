@@ -153,10 +153,10 @@ class _CreateScreenState extends State<CreateScreen> {
           .timeout(const Duration(seconds: 20));
 
       if (resp.statusCode == 200) {
-        debugPrint("✅ OTP request sent for $email");
+        debugPrint("OTP request sent for $email");
         return true;
       } else {
-        debugPrint("❌ send-otp failed [${resp.statusCode}]: ${resp.body}");
+        debugPrint(" send-otp failed [${resp.statusCode}]: ${resp.body}");
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Failed to send code: ${resp.statusCode}')),
@@ -165,7 +165,7 @@ class _CreateScreenState extends State<CreateScreen> {
         return false;
       }
     } catch (e) {
-      debugPrint("❌ send-otp error: $e");
+      debugPrint("send-otp error: $e");
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -226,14 +226,18 @@ class _CreateScreenState extends State<CreateScreen> {
         await _upsertUserDoc(refreshed);
 
         final email = refreshed.email ?? _emailController.text.trim();
+
         if (email.isEmpty) {
           setState(() => _error = 'Could not determine your email.');
           return;
         }
 
-        final ok = await _sendOtpToEmail(uid: refreshed.uid, email: email);
-        if (ok) {
-          await _goToVerifyAndMaybeProfile(uid: refreshed.uid, email: email);
+        // Save user completed, go directly to Profile
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const ProfileUserScreen()),
+          );
         }
       }
     } on FirebaseAuthException catch (e) {
@@ -284,6 +288,17 @@ class _CreateScreenState extends State<CreateScreen> {
         await _upsertUserDoc(refreshed, displayName: displayName);
 
         final ok = await _sendOtpToEmail(uid: refreshed.uid, email: email);
+
+        print('OTP RESULT = $ok');
+
+        // Always continue for now
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const ProfileUserScreen()),
+          );
+        }
+
         if (ok) {
           await _goToVerifyAndMaybeProfile(uid: refreshed.uid, email: email);
         }
