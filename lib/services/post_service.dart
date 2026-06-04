@@ -1,66 +1,152 @@
 // lib/services/post_service.dart
+
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
 class PostService {
-  final _auth = FirebaseAuth.instance;
-  final _db = FirebaseFirestore.instance;
-  final _storage = FirebaseStorage.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final FirebaseStorage _storage = FirebaseStorage.instance;
 
-  // Build author info from Firestore 'users/{uid}' with Auth fallbacks
+  // Fetch Posts
+  // =========================
+  Future<List<Map<String, dynamic>>> fetchPosts() async {
+    final snapshot = await _db
+        .collection('posts')
+        .orderBy('createdAt', descending: true)
+        .get();
+
+    return snapshot.docs.map((doc) => doc.data()).toList();
+  }
+
+  // =========================
+  // Author Info
+  // =========================
   Future<Map<String, dynamic>> _authorInfo() async {
-    final u = _auth.currentUser;
-    if (u == null) return {};
+    final user = _auth.currentUser;
+    if (user == null) return {};
 
-    final doc = await _db.collection('users').doc(u.uid).get();
+    final doc = await _db.collection('users').doc(user.uid).get();
     final data = doc.data() ?? {};
 
     return {
-      'authorId': u.uid,
+      'authorId': user.uid,
       'authorName': (data['displayName'] as String?)?.trim().isNotEmpty == true
           ? (data['displayName'] as String).trim()
-          : (u.displayName ?? (u.email?.split('@').first ?? 'User')),
-      'authorAvatar': (data['photoURL'] as String?) ?? (u.photoURL ?? ''),
-      'dob': data['dob'] ?? {}, // e.g. {'day':'04','month':'04','year':'2025'}
+          : (user.displayName ?? (user.email?.split('@').first ?? 'User')),
+      'authorAvatar': (data['photoURL'] as String?) ?? (user.photoURL ?? ''),
+      'dob': data['dob'] ?? {},
       'gender': data['gender'] ?? '',
     };
   }
 
-  // Expose author info if your UI wants to show it
   Future<Map<String, dynamic>> fetchAuthor() => _authorInfo();
 
-  // Upload multiple files to Storage and return their download URLs
+  // =========================
+  // Upload Images
+  // =========================
   Future<List<String>> _uploadFiles(String postId, List<File> files) async {
     final uid = _auth.currentUser!.uid;
+
     final List<String> urls = [];
-    for (var i = 0; i < files.length; i++) {
+
+    for (int i = 0; i < files.length; i++) {
       final path = 'users/$uid/posts/$postId/$i';
+
       final ref = _storage.ref(path);
+
       final snap = await ref.putFile(files[i]);
-      urls.add(await snap.ref.getDownloadURL());
+
+      final url = await snap.ref.getDownloadURL();
+
+      urls.add(url);
     }
+
     return urls;
   }
 
-  // Create a post document in Firestore
+  
+  // Create Post
+  // =========================
   Future<String> createPost({
     required String caption,
-    required List<File> images, // pass only images here (keep it simple)
+    required List<File> images,
   }) async {
     final postRef = _db.collection('posts').doc();
+
     final mediaUrls = await _uploadFiles(postRef.id, images);
+
     final author = await _authorInfo();
 
     await postRef.set({
       'id': postRef.id,
       'caption': caption,
-      'media': mediaUrls, // array of image URLs
+      'media': mediaUrls,
+      'likeCount': 0,
+      'commentCount': 0,
       'createdAt': FieldValue.serverTimestamp(),
-      ...author, // authorId, authorName, authorAvatar, dob, gender
+      ...author,
     });
 
     return postRef.id;
+  }
+
+  // =========================
+  // Like Post
+  // =========================
+  Future<void> likePost(String postId) async {
+    print("POST ID = $postId");
+    final uid = _auth.currentUser!.uid;
+
+    await _db.collection('posts').doc(postId).collection('likes').doc(uid).set({
+      'userId': uid,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    await _db.collection('posts').doc(postId).update({
+      'likeCount': FieldValue.increment(1),
+    });
+  }
+
+  // =========================
+  // Unlike Post
+  // =========================
+  Future<void> unlikePost(String postId) async {
+    final uid = _auth.currentUser!.uid;
+
+    await _db
+        .collection('posts')
+        .doc(postId)
+        .collection('likes')
+        .doc(uid)
+        .delete();
+
+    await _db.collection('posts').doc(postId).update({
+      'likeCount': FieldValue.increment(-1),
+    });
+  }
+
+  // =========================
+  // Add Comment
+  // =========================
+  Future<void> addComment({
+    required String postId,
+    required String text,
+  }) async {
+    print("ADD COMMENT");
+    print("Post ID: $postId");
+    print("Text: $text");
+
+    final uid = _auth.currentUser!.uid;
+
+    await _db.collection('posts').doc(postId).collection('comments').add({
+      'userId': uid,
+      'text': text,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    print("COMMENT SAVED");
   }
 }
