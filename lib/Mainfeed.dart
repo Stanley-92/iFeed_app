@@ -15,6 +15,7 @@ import 'package:iconify_flutter/icons/ri.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'services/post_service.dart';
 import 'services/like_service.dart';
+import 'profile.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
 //Firebase and Google
@@ -719,6 +720,8 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
             if (_feedPosts.isEmpty)
               const SliverToBoxAdapter(child: _EmptyFeed()),
 
+           
+           
             // -------------------- Feed --------------------
             SliverList(
               delegate: SliverChildBuilderDelegate(
@@ -793,7 +796,7 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => const profile.ProfileUserScreen(),
+              builder: (_) => ProfileUserScreen(userId: FirebaseAuth.instance.currentUser!.uid),
             ),
           );
         },
@@ -832,6 +835,8 @@ class _EmptyFeed extends StatelessWidget {
     );
   }
 }
+
+
 
 /// ------------------------- Story Ring -------------------------
 class StoryRing extends StatelessWidget {
