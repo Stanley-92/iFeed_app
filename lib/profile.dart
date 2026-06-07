@@ -1,6 +1,8 @@
 // lib/profile.dart
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'services/api_client.dart';
 import 'services/user_profile_service.dart';
 import 'package:iconify_flutter/iconify_flutter.dart';
@@ -39,13 +41,18 @@ class ProfileUserScreen extends StatefulWidget {
 
 class _ProfileUserScreenState extends State<ProfileUserScreen> {
   final List<model.Post> _posts = <model.Post>[];
+  final List<_UserReply> _replies = [];
   _Tab _active = _Tab.iFeed;
+  bool _loading = false;
+  bool _loadingReplies = false;
 
   // Local editable profile pieces (used for Edit page preview)
   String? _profileAvatarPath;
   String _displayNameFallback = '';
   String _bio = 'Bio';
   String? _currentUserId;
+
+  String get _cacheKey => 'profile_posts_${widget.userId}';
 
   @override
   void initState() {
@@ -54,35 +61,100 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
       if (mounted) setState(() => _currentUserId = id);
     });
     _fetchUserPosts();
+    _fetchUserReplies();
+  }
+
+  Future<void> _fetchUserReplies() async {
+    if (mounted) setState(() => _loadingReplies = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('profile_replies_${widget.userId}');
+      if (raw != null) {
+        final list = jsonDecode(raw) as List;
+        final cached = list
+            .map((d) => _UserReply.fromMap(d as Map<String, dynamic>))
+            .toList();
+        if (mounted) {
+          setState(() => _replies..clear()..addAll(cached));
+        }
+      }
+    } catch (e) {
+      debugPrint('loadReplies error: $e');
+    } finally {
+      if (mounted) setState(() => _loadingReplies = false);
+    }
+  }
+
+  model.Post _postFromMap(Map<String, dynamic> data) {
+    final mediaRaw = (data['media'] as List?) ?? [];
+    final media = mediaRaw.map<model.PostMedia>((m) {
+      final url = (m['url'] as String?) ?? '';
+      final typeStr = (m['type'] as String?) ?? 'image';
+      return typeStr == 'video'
+          ? model.PostMedia.video(url)
+          : model.PostMedia.image(url);
+    }).toList();
+    return model.Post(
+      id: (data['_id'] ?? data['id'] ?? '').toString(),
+      authorId: (data['authorId'] ?? data['userId'] ?? '').toString(),
+      authorName: (data['authorName'] ?? 'User').toString(),
+      authorAvatar: (data['authorAvatar'] ?? '').toString(),
+      timeText: 'just now',
+      caption: (data['caption'] ?? '').toString(),
+      media: media,
+    );
+  }
+
+  Future<void> _loadCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_cacheKey);
+      if (raw == null || !mounted) return;
+      final list = jsonDecode(raw) as List;
+      final cached = list.map<model.Post>((d) => _postFromMap(d as Map<String, dynamic>)).toList();
+      if (cached.isNotEmpty && mounted) {
+        setState(() {
+          _posts..clear()..addAll(cached);
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveCache(List<model.Post> posts) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final json = posts.map((p) => {
+        '_id': p.id,
+        'authorId': p.authorId,
+        'authorName': p.authorName,
+        'authorAvatar': p.authorAvatar,
+        'caption': p.caption,
+        'media': p.media.map((m) => {
+          'url': m.url ?? '',
+          'type': m.type == model.MediaType.video ? 'video' : 'image',
+        }).toList(),
+      }).toList();
+      await prefs.setString(_cacheKey, jsonEncode(json));
+    } catch (_) {}
   }
 
   Future<void> _fetchUserPosts() async {
+    if (mounted) setState(() => _loading = true);
+
+    // Show cached posts immediately while fetching
+    await _loadCache();
+
     try {
       final r = await apiGet('/posts?userId=${widget.userId}');
       final list = expectJsonList(r);
-      final serverPosts = list.map<model.Post>((raw) {
-        final data = raw as Map<String, dynamic>;
-        final mediaRaw = (data['media'] as List?) ?? [];
-        final media = mediaRaw.map<model.PostMedia>((m) {
-          final url = (m['url'] as String?) ?? '';
-          final typeStr = (m['type'] as String?) ?? 'image';
-          return typeStr == 'video'
-              ? model.PostMedia.video(url)
-              : model.PostMedia.image(url);
-        }).toList();
-        return model.Post(
-          id: (data['_id'] ?? data['id'] ?? '').toString(),
-          authorId: (data['authorId'] ?? data['userId'] ?? '').toString(),
-          authorName: (data['authorName'] ?? 'User').toString(),
-          authorAvatar: (data['authorAvatar'] ?? '').toString(),
-          timeText: 'just now',
-          caption: (data['caption'] ?? '').toString(),
-          media: media,
-        );
-      }).toList();
+      final serverPosts = list.map<model.Post>((raw) =>
+          _postFromMap(raw as Map<String, dynamic>)).toList();
+
+      await _saveCache(serverPosts);
 
       if (!mounted) return;
       setState(() {
+        _loading = false;
         final serverIds = serverPosts.map((p) => p.id).toSet();
         final localOnly = _posts.where((p) => !serverIds.contains(p.id)).toList();
         _posts
@@ -92,6 +164,7 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
       });
     } catch (e) {
       debugPrint('fetchUserPosts error: $e');
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -111,6 +184,9 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
     BuildContext context, {
     required String currentName,
   }) async {
+    // Capture before any await
+    final messenger = ScaffoldMessenger.of(context);
+
     final res = await Navigator.push<ProfileEditResult>(
       context,
       MaterialPageRoute(
@@ -142,14 +218,13 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
         _bio = res.bio;
       });
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         const SnackBar(content: Text('Profile updated successfully')),
       );
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Failed to update profile: $e')));
+      messenger.showSnackBar(
+        SnackBar(content: Text('Failed to update profile: $e')),
+      );
     }
   }
 
@@ -234,21 +309,40 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
             Widget content;
             switch (_active) {
               case _Tab.iFeed:
-                content = _posts.isEmpty
-                    ? _EmptyState(onCreate: () => _openComposer(context))
-                    : _ProfileMediaList(posts: _posts);
+                if (_loading && _posts.isEmpty) {
+                  content = const Center(child: CircularProgressIndicator());
+                } else {
+                  content = _posts.isEmpty
+                      ? _EmptyState(onCreate: () => _openComposer(context))
+                      : _ProfileMediaList(posts: _posts);
+                }
                 break;
               case _Tab.shuffle:
                 content = const _NothingYet(label: 'Nothing yet!');
                 break;
               case _Tab.media:
                 final mediaPosts = _mediaOnly();
-                content = mediaPosts.isEmpty
-                    ? _EmptyState(onCreate: () => _openComposer(context))
-                    : _ProfileMediaList(posts: mediaPosts);
+                if (_loading && mediaPosts.isEmpty) {
+                  content = const Center(child: CircularProgressIndicator());
+                } else {
+                  content = mediaPosts.isEmpty
+                      ? _EmptyState(onCreate: () => _openComposer(context))
+                      : _ProfileMediaList(posts: mediaPosts);
+                }
                 break;
               case _Tab.replies:
-                content = const _NothingYet(label: 'No replies yet');
+                if (_loadingReplies && _replies.isEmpty) {
+                  content = const Center(child: CircularProgressIndicator());
+                } else if (_replies.isEmpty) {
+                  content = const _NothingYet(label: 'No replies yet');
+                } else {
+                  content = ListView.separated(
+                    padding: const EdgeInsets.only(bottom: 24),
+                    itemCount: _replies.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, i) => _ReplyCard(reply: _replies[i]),
+                  );
+                }
                 break;
             }
 
@@ -833,7 +927,7 @@ class _RoundedTile extends StatelessWidget {
                       m.path,
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) {
-                        print('PROFILE BROKEN IMAGE: ${m.path}');
+                        debugPrint('PROFILE BROKEN IMAGE: ${m.path}');
                         return Container(
                           color: Colors.grey.shade200,
                           child: const Center(
@@ -1078,6 +1172,144 @@ class _EmptyState extends StatelessWidget {
           child: const Text('Create post'),
         ),
       ],
+    );
+  }
+}
+
+// ======================= User Reply model =======================
+class _UserReply {
+  final String id;
+  final String postId;
+  final String postAuthorName;
+  final String postAuthorAvatar;
+  final String text;
+  final String time;
+  final int likeCount;
+
+  const _UserReply({
+    required this.id,
+    required this.postId,
+    required this.postAuthorName,
+    required this.postAuthorAvatar,
+    required this.text,
+    required this.time,
+    this.likeCount = 0,
+  });
+
+  factory _UserReply.fromMap(Map<String, dynamic> d) => _UserReply(
+        id: (d['_id'] ?? d['id'] ?? '').toString(),
+        postId: (d['postId'] ?? '').toString(),
+        postAuthorName: (d['postAuthorName'] ?? d['replyTo'] ?? 'someone').toString(),
+        postAuthorAvatar: (d['postAuthorAvatar'] ?? '').toString(),
+        text: (d['text'] ?? d['content'] ?? '').toString(),
+        time: (d['createdAt'] ?? d['time'] ?? 'just now').toString(),
+        likeCount: (d['likeCount'] as num?)?.toInt() ?? 0,
+      );
+
+  Map<String, dynamic> toMap() => {
+        '_id': id,
+        'postId': postId,
+        'postAuthorName': postAuthorName,
+        'postAuthorAvatar': postAuthorAvatar,
+        'text': text,
+        'time': time,
+        'likeCount': likeCount,
+      };
+}
+
+// ======================= Reply card =======================
+class _ReplyCard extends StatelessWidget {
+  const _ReplyCard({required this.reply});
+  final _UserReply reply;
+
+  ImageProvider? _avatarProvider(String url) {
+    if (url.isEmpty) return null;
+    if (url.startsWith('http')) return NetworkImage(url);
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(38, 12, 16, 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 20,
+            backgroundImage: _avatarProvider(reply.postAuthorAvatar),
+            backgroundColor: const Color(0xFFE5E7EB),
+            child: reply.postAuthorAvatar.isEmpty
+                ? Text(
+                    reply.postAuthorName.isNotEmpty
+                        ? reply.postAuthorName[0].toUpperCase()
+                        : '?',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.black54,
+                    ),
+                  )
+                : null,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // "Replying to" header
+                Row(
+                  children: [
+                    Text(
+                      reply.postAuthorName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      reply.time,
+                      style: const TextStyle(
+                        color: Colors.black45,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Replying to @${reply.postAuthorName}',
+                  style: const TextStyle(
+                    color: Color(0xff3d5afe),
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                // Reply text
+                Text(
+                  reply.text,
+                  style: const TextStyle(fontSize: 15, height: 1.35),
+                ),
+                const SizedBox(height: 8),
+                // Like count
+                if (reply.likeCount > 0)
+                  Row(
+                    children: [
+                      const Icon(Icons.favorite_border, size: 16, color: Colors.black45),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${reply.likeCount}',
+                        style: const TextStyle(fontSize: 13, color: Colors.black45),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
