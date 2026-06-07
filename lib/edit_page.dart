@@ -345,7 +345,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                         ),
                         onPressed: _submit,
                         child: const Text(
-                          'Next',
+                          'Save',
                           style: TextStyle(fontWeight: FontWeight.w600),
                         ),
                       ),
