@@ -64,6 +64,7 @@ class Comment {
 /// (Feed-specific counters like likes/reposts can live in UI state.)
 class Post {
   final String id;
+  final String authorId;
   final String authorName;
   final String authorAvatar;   // URL (can be '')
   final String timeText;       // eg. "just now"
@@ -73,6 +74,7 @@ class Post {
 
   Post({
     required this.id,
+    this.authorId = '',
     required this.authorName,
     required this.authorAvatar,
     required this.timeText,
