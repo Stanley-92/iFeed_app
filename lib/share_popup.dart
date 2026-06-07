@@ -5,6 +5,7 @@ import 'package:colorful_iconify_flutter/icons/logos.dart';
 import 'package:iconify_flutter/icons/line_md.dart';
 import 'package:iconify_flutter/icons/uil.dart';
 import 'package:iconify_flutter/icons/ph.dart';
+import 'services/api_client.dart';
 
 class ShareTarget {
   final String name;
@@ -12,270 +13,222 @@ class ShareTarget {
   const ShareTarget(this.name, {this.avatarUrl = ''});
 }
 
-/// Opens the share popup with slide-up-from-bottom animation.
+/// Opens the share popup as a full-screen bottom sheet.
 Future<void> showPlaneSharePopup(
   BuildContext context, {
   required String shareLink,
-  List<ShareTarget>? targets,
   String hint = 'Write something ...',
 }) async {
-  final people = targets ?? List.generate(9, (i) => ShareTarget('user_${i + 1}'));
-
-  await showGeneralDialog(
+  await showModalBottomSheet(
     context: context,
-    barrierLabel: 'share',
-    barrierDismissible: true,
-    barrierColor: Colors.transparent, // keep feed visible
-    transitionDuration: const Duration(milliseconds: 260),
-    pageBuilder: (_, __, ___) => const SizedBox.shrink(),
-    transitionBuilder: (ctx, anim, __, ___) {
-      final curved = CurvedAnimation(
-        parent: anim,
-        curve: Curves.easeOutCubic,
-        reverseCurve: Curves.easeInCubic,
-      );
-
-      final slide = Tween<Offset>(
-        begin: const Offset(0, 1.0), // start off-screen bottom
-        end: Offset.zero,            // end centered
-      ).animate(curved);
-
-      final scale = Tween<double>(begin: 0.98, end: 1.0).animate(curved);
-
-      final card = _ShareCard(
-        shareLink: shareLink,
-        hint: hint,
-        targets: people,
-      );
-
-      return SafeArea(
-        child: Padding(
-          // keep visible if keyboard opens
-          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-          child: Align(
-            alignment: Alignment.center,
-            child: SlideTransition(
-              position: slide,
-              child: FadeTransition(
-                opacity: curved,
-                child: ScaleTransition(scale: scale, child: card),
-              ),
-            ),
-          ),
-        ),
-      );
-    },
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _ShareCard(shareLink: shareLink, hint: hint),
   );
 }
 
-class _ShareCard extends StatelessWidget {
-  const _ShareCard({
-    required this.shareLink,
-    required this.hint,
-    required this.targets,
-  });
-
+class _ShareCard extends StatefulWidget {
+  const _ShareCard({required this.shareLink, required this.hint});
   final String shareLink;
   final String hint;
-  final List<ShareTarget> targets;
+
+  @override
+  State<_ShareCard> createState() => _ShareCardState();
+}
+
+class _ShareCardState extends State<_ShareCard> {
+  List<ShareTarget> _users = [];
+  bool _loadingUsers = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchUsers();
+  }
+
+  Future<void> _fetchUsers() async {
+    try {
+      final r = await apiGet('/follows/following');
+      final list = expectJsonList(r);
+      final users = list.map((raw) {
+        final d = raw as Map<String, dynamic>;
+        final name = (d['displayName'] ?? d['username'] ?? '').toString();
+        final avatar = (d['photoURL'] ?? d['avatarUrl'] ?? '').toString();
+        return ShareTarget(name.isNotEmpty ? name : 'User', avatarUrl: avatar);
+      }).toList();
+      if (mounted) setState(() { _users = users; _loadingUsers = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loadingUsers = false);
+    }
+  }
+
+  void _toast(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
 
   @override
   Widget build(BuildContext context) {
-    // Colors to match the mock
     const borderGray = Color(0xFFE6E6E6);
-    const chipGray = Color(0xFFF4F4F4);
-    final textDim = Colors.black;
+    const chipGray = Color(0xFFF0F0F0);
+    final screenH = MediaQuery.of(context).size.height;
+    final bottomPad = MediaQuery.of(context).viewInsets.bottom
+        + MediaQuery.of(context).padding.bottom;
 
-    return Material(
-      color: Colors.white,
-      elevation: 10,                 // a touch higher since barrier is transparent
-      shadowColor: Colors.black26,
-      borderRadius: BorderRadius.circular(18),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420, minWidth: 360),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Send to anyone !',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: Color.fromARGB(255, 97, 96, 96),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 18),
-
-              // Inner rounded panel
-              Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color.fromARGB(255, 255, 255, 255), width: 2),
-                ),
-                padding: const EdgeInsets.fromLTRB(58, 2, 28, 5),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Slim input
-                    SizedBox(
-                      height: 45,
-                      child: TextField(
-                        textAlignVertical: TextAlignVertical.center,
-                        decoration: InputDecoration(
-                          hintText: hint,
-                          hintStyle: const TextStyle(color: Colors.black),
-                          isDense: true,
-                          contentPadding:
-                              const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                          filled: true,
-                          fillColor: chipGray,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            borderSide: const BorderSide(color: borderGray),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            borderSide: const BorderSide(color: borderGray),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            borderSide: const BorderSide(color: borderGray),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-
-                    // 3x3 avatar grid
-                    GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: targets.length,
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        mainAxisSpacing: 14,
-                        crossAxisSpacing: 14,
-                        childAspectRatio: .88,
-                      ),
-                      itemBuilder: (_, i) {
-                        final t = targets[i];
-
-                        final avatar = Container(
-                          width: 56,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(color: borderGray , width: 2), // border user 
-                        
-                          ),
-                          child: ClipOval(
-                          child: t.avatarUrl.isEmpty
-    ? const Center(
-        child: Iconify(
-          LineMd.account,
-          size: 26,
-          color: Color.fromARGB(137, 3, 3, 3),
-        ),
-      )
-    : Image.network(
-        t.avatarUrl,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) {
-          print('SHARE AVATAR BROKEN: ${t.avatarUrl}');
-          return const Center(
-            child: Iconify(
-              LineMd.account,
-              size: 26,
-              color: Color.fromARGB(137, 3, 3, 3),
-            ),
-          );
-        },
+    return Container(
+      height: screenH * 0.52,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-                          ),
-                        );
+      padding: EdgeInsets.fromLTRB(18, 12, 18, 20 + bottomPad),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Drag handle
+          Center(
+            child: Container(
+              width: 38,
+              height: 4,
+              decoration: BoxDecoration(
+                color: const Color(0xFFCCCCCC),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
 
-                        return Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            avatar,
-                            const SizedBox(height: 8),
-                            Text(
-                              t.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(fontSize: 13, color: textDim),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
+          // Pill-shaped input
+          TextField(
+            textAlignVertical: TextAlignVertical.center,
+            decoration: InputDecoration(
+              hintText: widget.hint,
+              hintStyle: const TextStyle(color: Colors.black45, fontSize: 14),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              filled: true,
+              fillColor: chipGray,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(26),
+                borderSide: BorderSide.none,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(26),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(26),
+                borderSide: const BorderSide(color: borderGray),
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
 
-                    const SizedBox(height: 12),
-                    const Divider(height: 1, color: borderGray,),
-              
-                    const SizedBox(height: 10),
+          // Horizontal scrollable user row — fixed height
+          SizedBox(
+            height: 100,
+            child: _loadingUsers
+                ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                : _users.isEmpty
+                    ? const Center(
+                        child: Text('No users', style: TextStyle(color: Colors.black45)),
+                      )
+                    : ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _users.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 18),
+                        itemBuilder: (_, i) {
+                          final t = _users[i];
+                          return Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 54,
+                                height: 54,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: borderGray, width: 1.5),
+                                ),
+                                child: ClipOval(
+                                  child: t.avatarUrl.isEmpty
+                                      ? const Center(
+                                          child: Iconify(LineMd.account, size: 28, color: Color(0xFF888888)),
+                                        )
+                                      : Image.network(
+                                          t.avatarUrl,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) => const Center(
+                                            child: Iconify(LineMd.account, size: 28, color: Color(0xFF888888)),
+                                          ),
+                                        ),
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              SizedBox(
+                                width: 58,
+                                child: Text(
+                                  t.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(fontSize: 12, color: Colors.black87),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+          ),
 
-                    // Quick actions
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _ActionChip(
-                          label: 'Copy',
-                          icon: const Iconify(Ph.link_bold, size: 22),
-                          borderGray: borderGray,
-                          border: Border.all(color: borderGray, width: 2),
-                          onTap: () async {
-                            await Clipboard.setData(ClipboardData(text: shareLink));
-                            _toast(context, 'Link copied');
-                          },
-                        ),
-                        _ActionChip(
-                          label: 'Story',
-                          icon: const Iconify(Ph.star_four, size: 22),
-                          borderGray: borderGray,
-                          border: Border.all(color: borderGray, width: 2), // custom 2px
-                          onTap: () => _toast(context, 'Shared to Story'),
-                        ),
-                        _ActionChip(
-                          label: 'Telegram',
-                          icon: const Iconify(Logos.telegram, size: 55),
-                          borderGray: Colors.transparent, // no border
-                          onTap: () => _toast(context, 'Opened Telegram'),
-                        ),
-                        _ActionChip(
-                          label: 'Facebook',
-                          icon: const Iconify(Logos.facebook, size: 55),
-                          borderGray: Colors.transparent, // no border
-                          onTap: () => _toast(context, 'Opened Facebook'),
-                        ),
-                       _ActionChip(
-  label: 'iFeed',
-  icon: const Iconify(Uil.comment, size: 38, color: Colors.white), // white icon
-  borderGray: Colors.transparent,
-  border: Border.all(color: const Color.fromARGB(255, 36, 231, 19), width: 2),
-  backgroundColor: const Color.fromARGB(255, 36, 231, 19), // green fill
-  onTap: () => _toast(context, 'Shared to iFeed'),
-),
+          const Spacer(),
+          const Divider(height: 1, color: borderGray),
+          const SizedBox(height: 14),
 
-                      ],
-                    ),
-                  ],
-                ),
+          // Action chips pinned at bottom
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _ActionChip(
+                label: 'Copy',
+                icon: const Iconify(Ph.link_bold, size: 22),
+                borderGray: borderGray,
+                border: Border.all(color: borderGray, width: 1.5),
+                onTap: () async {
+                  await Clipboard.setData(ClipboardData(text: widget.shareLink));
+                  _toast('Link copied');
+                },
+              ),
+              _ActionChip(
+                label: 'Story',
+                icon: const Iconify(Ph.star_four, size: 22),
+                borderGray: borderGray,
+                border: Border.all(color: borderGray, width: 1.5),
+                onTap: () => _toast('Shared to Story'),
+              ),
+              _ActionChip(
+                label: 'Telegram',
+                icon: const Iconify(Logos.telegram, size: 50),
+                borderGray: Colors.transparent,
+                onTap: () => _toast('Opened Telegram'),
+              ),
+              _ActionChip(
+                label: 'Facebook',
+                icon: const Iconify(Logos.facebook, size: 50),
+                borderGray: Colors.transparent,
+                onTap: () => _toast('Opened Facebook'),
+              ),
+              _ActionChip(
+                label: 'iFeed',
+                icon: const Iconify(Uil.comment, size: 30, color: Colors.white),
+                borderGray: Colors.transparent,
+                backgroundColor: const Color(0xFF22C55E),
+                onTap: () => _toast('Shared to iFeed'),
               ),
             ],
           ),
-        ),
+        ],
       ),
     );
-  }
-
-  static void _toast(BuildContext ctx, String msg) {
-    ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(msg)));
   }
 }
 
