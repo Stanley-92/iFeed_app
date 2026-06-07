@@ -47,7 +47,7 @@ Future<MyProfile> updateProfile({
       if (displayName != null) 'displayName': displayName,
       if (bio != null) 'bio': bio,
     },
-    files: photo != null ? [(field: 'photo', file: photo)] : [],
+    files: photo != null ? [(field: 'avatar', file: photo)] : [],
   );
   return MyProfile.fromJson(expectJson(r));
 }
