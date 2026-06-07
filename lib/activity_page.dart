@@ -5,11 +5,12 @@ import 'package:iconify_flutter/icons/material_symbols.dart';
 import 'package:iconify_flutter/icons/ion.dart';
 import 'package:iconify_flutter/icons/ph.dart';
 import 'package:iconify_flutter/icons/gg.dart';
+import 'services/api_client.dart' show getCurrentUserId;
 
-import 'mainfeed.dart' show MainfeedScreen, UploadPostPage;   // Home + composer
-import 'suggestions_page.dart';                               // Search
-import 'reel_page.dart';                                      // Reels
-import 'profile.dart';                                        // Profile page
+import 'mainfeed.dart' show MainfeedScreen, UploadPostPage; // Home + composer
+import 'suggestions_page.dart'; // Search
+import 'reel_page.dart'; // Reels
+import 'profile.dart'; // Profile page
 
 class ActivityPage extends StatefulWidget {
   const ActivityPage({super.key});
@@ -18,7 +19,13 @@ class ActivityPage extends StatefulWidget {
 }
 
 class _ActivityPageState extends State<ActivityPage> {
-  final List<String> _filters = const ['All', 'Follows', 'Shuffle', 'Replies', 'iFeed'];
+  final List<String> _filters = const [
+    'All',
+    'Follows',
+    'Shuffle',
+    'Replies',
+    'iFeed',
+  ];
   String _selected = 'All';
 
   // ---- navigation helpers (same routes wiring as other screens) ----
@@ -31,19 +38,33 @@ class _ActivityPageState extends State<ActivityPage> {
   }
 
   void _openSearch() {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const FollowSuggestionsPage()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const FollowSuggestionsPage()),
+    );
   }
 
   void _openComposer() {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const UploadPostPage()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const UploadPostPage()),
+    );
   }
 
   void _openReels() {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const ReelsPage()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ReelsPage()),
+    );
   }
 
-  void _openProfile() {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileUserScreen()));
+  Future<void> _openProfile() async {
+    final userId = await getCurrentUserId();
+    if (!mounted || userId == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ProfileUserScreen(userId: userId)),
+    );
   }
 
   @override
@@ -75,7 +96,10 @@ class _ActivityPageState extends State<ActivityPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Activity', style: TextStyle(fontWeight: FontWeight.w700)),
+                  const Text(
+                    'Activity',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
                   const SizedBox(height: 10),
                   Wrap(
                     spacing: 10,
@@ -85,9 +109,14 @@ class _ActivityPageState extends State<ActivityPage> {
                       return GestureDetector(
                         onTap: () => setState(() => _selected = f),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
                           decoration: BoxDecoration(
-                            color: selected ? const Color(0xffeef2ff) : Colors.white,
+                            color: selected
+                                ? const Color(0xffeef2ff)
+                                : Colors.white,
                             border: Border.all(color: const Color(0xffd1d5db)),
                             borderRadius: BorderRadius.circular(999),
                           ),
@@ -96,7 +125,9 @@ class _ActivityPageState extends State<ActivityPage> {
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
-                              color: selected ? const Color(0xff1f2937) : const Color(0xff374151),
+                              color: selected
+                                  ? const Color(0xff1f2937)
+                                  : const Color(0xff374151),
                             ),
                           ),
                         ),
@@ -134,7 +165,10 @@ class _ActivityPageState extends State<ActivityPage> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _BarIcon(icon: MaterialSymbols.home_outline_rounded, onTap: _goHome),
+            _BarIcon(
+              icon: MaterialSymbols.home_outline_rounded,
+              onTap: _goHome,
+            ),
             _BarIcon(icon: Ion.search, onTap: _openSearch),
             _AddButton(onTap: _openComposer),
             _BarIcon(icon: Ph.skip_forward_circle_light, onTap: _openReels),
@@ -156,7 +190,11 @@ class _BarIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     return IconButton(
       onPressed: onTap,
-      icon: Iconify(icon, color: const Color.fromARGB(221, 87, 86, 86), size: 30),
+      icon: Iconify(
+        icon,
+        color: const Color.fromARGB(221, 87, 86, 86),
+        size: 30,
+      ),
     );
   }
 }
