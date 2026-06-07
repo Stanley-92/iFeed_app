@@ -1232,20 +1232,22 @@ class _PostCard extends StatelessWidget {
 
                 IconButton(
                   icon: const Iconify(Mdi.dots_horizontal, size: 24),
-                  onPressed: () =>
-                      _showPostMenu(context, post, (postId, mediaUrls) async {
-                        final state = context
-                            .findAncestorStateOfType<_MainfeedScreenState>();
+                  onPressed: () => _showPostMenu(context, post, currentUserId, (
+                    postId,
+                    mediaUrls,
+                  ) async {
+                    final state = context
+                        .findAncestorStateOfType<_MainfeedScreenState>();
 
-                        if (state != null) {
-                          await state.deletePost(
-                            postId: postId,
-                            mediaUrls: mediaUrls,
-                          );
+                    if (state != null) {
+                      await state.deletePost(
+                        postId: postId,
+                        mediaUrls: mediaUrls,
+                      );
 
-                          await state.loadPosts();
-                        }
-                      }),
+                      await state.loadPosts();
+                    }
+                  }),
                 ),
               ],
             ),
@@ -1361,8 +1363,10 @@ class _PostCard extends StatelessWidget {
 void _showPostMenu(
   BuildContext context,
   _Post post,
+  String currentUserId,
   Future<void> Function(String, List<String>) onDelete,
 ) {
+  final isOwner = post.authorId == currentUserId;
   showModalBottomSheet(
     context: context,
     backgroundColor: Colors.transparent,
@@ -1399,40 +1403,36 @@ void _showPostMenu(
               ),
               _MenuSection(
                 children: [
-                  _MenuItem(
-                    iconify: Ph.bell,
-                    label: 'Mute',
-                    onTap: () => Navigator.pop(context),
-                  ),
-                  _MenuItem(
-                    iconify: Ph.prohibit_inset_bold,
-                    label: 'Block',
-                    danger: true,
-                    onTap: () => Navigator.pop(context),
-                  ),
-                  _MenuItem(
-                    iconify: Ph.trash_simple_bold,
-                    label: 'Delete',
-                    danger: true,
-                    onTap: () async {
-                      Navigator.pop(context);
-
-                      print('DELETE CLICKED');
-
-                      try {
-                        print('BEFORE onDelete');
-
-                        await onDelete(
-                          post.id,
-                          post.media.map((m) => m.path).toList(),
-                        );
-
-                        print('AFTER onDelete');
-                      } catch (e) {
-                        print('Delete failed: $e');
-                      }
-                    },
-                  ),
+                  if (!isOwner) ...[
+                    _MenuItem(
+                      iconify: Ph.bell,
+                      label: 'Mute',
+                      onTap: () => Navigator.pop(context),
+                    ),
+                    _MenuItem(
+                      iconify: Ph.prohibit_inset_bold,
+                      label: 'Block',
+                      danger: true,
+                      onTap: () => Navigator.pop(context),
+                    ),
+                  ],
+                  if (isOwner)
+                    _MenuItem(
+                      iconify: Ph.trash_simple_bold,
+                      label: 'Delete',
+                      danger: true,
+                      onTap: () async {
+                        Navigator.pop(context);
+                        try {
+                          await onDelete(
+                            post.id,
+                            post.media.map((m) => m.path).toList(),
+                          );
+                        } catch (e) {
+                          debugPrint('Delete failed: $e');
+                        }
+                      },
+                    ),
                 ],
               ),
             ],
@@ -1643,50 +1643,7 @@ class _PostMedia extends StatelessWidget {
           );
         }
 
-        // 2 tiles layout
-        if (post.media.length == 2) {
-          const aspect2 = 9 / 12;
-          final perTileW = (contentW - _gap) / 2;
-          final rowH = (perTileW / aspect2).clamp(_minH, maxH);
-
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: _side),
-            child: SizedBox(
-              height: rowH,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _RoundedTile(
-                      m: post.media[0],
-                      aspect: aspect2,
-                      onTap: () => _openViewerPaged(context, 0),
-                      onVideoTap: () => _showVideoSheet(
-                        context: context,
-                        media: post.media[0],
-                        onFullscreen: () => _openViewerPaged(context, 0),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: _gap),
-                  Expanded(
-                    child: _RoundedTile(
-                      m: post.media[1],
-                      aspect: aspect2,
-                      onTap: () => _openViewerPaged(context, 1),
-                      onVideoTap: () => _showVideoSheet(
-                        context: context,
-                        media: post.media[1],
-                        onFullscreen: () => _openViewerPaged(context, 1),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-
-        // horizontal scroller (3+)
+        // horizontal scroller (2+)
         return SizedBox(
           height: h,
           child: ListView.separated(
