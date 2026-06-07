@@ -53,6 +53,46 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
     getCurrentUserId().then((id) {
       if (mounted) setState(() => _currentUserId = id);
     });
+    _fetchUserPosts();
+  }
+
+  Future<void> _fetchUserPosts() async {
+    try {
+      final r = await apiGet('/posts?userId=${widget.userId}');
+      final list = expectJsonList(r);
+      final serverPosts = list.map<model.Post>((raw) {
+        final data = raw as Map<String, dynamic>;
+        final mediaRaw = (data['media'] as List?) ?? [];
+        final media = mediaRaw.map<model.PostMedia>((m) {
+          final url = (m['url'] as String?) ?? '';
+          final typeStr = (m['type'] as String?) ?? 'image';
+          return typeStr == 'video'
+              ? model.PostMedia.video(url)
+              : model.PostMedia.image(url);
+        }).toList();
+        return model.Post(
+          id: (data['_id'] ?? data['id'] ?? '').toString(),
+          authorId: (data['authorId'] ?? data['userId'] ?? '').toString(),
+          authorName: (data['authorName'] ?? 'User').toString(),
+          authorAvatar: (data['authorAvatar'] ?? '').toString(),
+          timeText: 'just now',
+          caption: (data['caption'] ?? '').toString(),
+          media: media,
+        );
+      }).toList();
+
+      if (!mounted) return;
+      setState(() {
+        final serverIds = serverPosts.map((p) => p.id).toSet();
+        final localOnly = _posts.where((p) => !serverIds.contains(p.id)).toList();
+        _posts
+          ..clear()
+          ..addAll(localOnly)
+          ..addAll(serverPosts);
+      });
+    } catch (e) {
+      debugPrint('fetchUserPosts error: $e');
+    }
   }
 
   ImageProvider? _headerAvatarImage(String? photoUrl) {
@@ -150,7 +190,12 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
   }
 
   bool _hasMedia(model.Post p) => p.media.isNotEmpty;
-  List<model.Post> _mediaOnly() => _posts.where(_hasMedia).toList();
+
+  List<model.Post> _mediaOnly() => _posts.where((p) {
+        if (!_hasMedia(p)) return false;
+        // Keep locally-created posts (authorId not yet set) or posts matching this profile
+        return p.authorId.isEmpty || p.authorId == widget.userId;
+      }).toList();
 
   @override
   Widget build(BuildContext context) {
@@ -199,7 +244,7 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
               case _Tab.media:
                 final mediaPosts = _mediaOnly();
                 content = mediaPosts.isEmpty
-                    ? const _NothingYet(label: 'No media yet')
+                    ? _EmptyState(onCreate: () => _openComposer(context))
                     : _ProfileMediaList(posts: mediaPosts);
                 break;
               case _Tab.replies:
@@ -696,53 +741,53 @@ class _ProfilePostMedia extends StatelessWidget {
   const _ProfilePostMedia({required this.items});
   final List<ProfileFeedMedia> items;
 
-  static const double _side = 100;
-  static const double _gap = 8;
-  static const double _minH = 180;
-  static const double _maxScreenFraction = 0.55;
+  static const double _paddingLeft = 96;
+  static const double _paddingRight = 12;
+  static const double _gap = 6;
+  static const double _minH = 220;
+  static const double _maxScreenFraction = 0.65;
 
   @override
   Widget build(BuildContext context) {
-    const baseAspect = 9 / 12;
+    const baseAspect = 4 / 5;
 
     return LayoutBuilder(
       builder: (context, c) {
-        final contentW = c.maxWidth - _side * 2;
+        final contentW = c.maxWidth - _paddingLeft - _paddingRight;
         final naturalH = contentW / baseAspect;
         final maxH = MediaQuery.of(context).size.height * _maxScreenFraction;
         final h = naturalH.clamp(_minH, maxH);
 
         if (items.length == 1) {
-          final m = items.first;
           return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: _side),
+            padding: const EdgeInsets.only(
+              left: _paddingLeft,
+              right: _paddingRight,
+            ),
             child: SizedBox(
               height: h,
-              child: _RoundedTile(m: m, aspect: baseAspect),
+              child: _RoundedTile(m: items.first, aspect: baseAspect),
             ),
           );
         }
 
-        // exactly 2 items
         if (items.length == 2) {
-       const aspect2 = 1.0;
+          const aspect2 = 4 / 5;
           final perTileW = (contentW - _gap) / 2;
           final rowH = (perTileW / aspect2).clamp(_minH, maxH);
-          
 
           return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: _side),
+            padding: const EdgeInsets.only(
+              left: _paddingLeft,
+              right: _paddingRight,
+            ),
             child: SizedBox(
               height: rowH,
               child: Row(
                 children: [
-                  Expanded(
-                    child: _RoundedTile(m: items[0], aspect: aspect2),
-                  ),
+                  Expanded(child: _RoundedTile(m: items[0], aspect: aspect2)),
                   const SizedBox(width: _gap),
-                  Expanded(
-                    child: _RoundedTile(m: items[1], aspect: aspect2),
-                  ),
+                  Expanded(child: _RoundedTile(m: items[1], aspect: aspect2)),
                 ],
               ),
             ),
@@ -752,18 +797,18 @@ class _ProfilePostMedia extends StatelessWidget {
         return SizedBox(
           height: h,
           child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: _side),
+            padding: const EdgeInsets.only(
+              left: _paddingLeft,
+              right: _paddingRight,
+            ),
             scrollDirection: Axis.horizontal,
             physics: const BouncingScrollPhysics(),
             itemCount: items.length,
             separatorBuilder: (_, __) => const SizedBox(width: _gap),
-            itemBuilder: (_, i) {
-              final m = items[i];
-              return SizedBox(
-                width: h * baseAspect,
-                child: _RoundedTile(m: m, aspect: baseAspect),
-              );
-            },
+            itemBuilder: (_, i) => SizedBox(
+              width: h * baseAspect,
+              child: _RoundedTile(m: items[i], aspect: baseAspect),
+            ),
           ),
         );
       },
