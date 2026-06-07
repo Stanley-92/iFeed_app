@@ -1,11 +1,14 @@
 // comments_page.dart
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:iconify_flutter/iconify_flutter.dart';
 import 'package:iconify_flutter/icons/uil.dart';
 import 'package:iconify_flutter/icons/ph.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import 'package:ifeed/services/comment_service.dart';
+import 'package:ifeed/services/api_client.dart';
 
 /// ====== Avatar helpers (match feed behavior) ======
 const String defaultAvatarAsset = '';
@@ -155,10 +158,12 @@ class _CommentsPageState extends State<CommentsPage> {
   //Send comment to backend and add to UI
   Future<void> _send() async {
     final text = _input.text.trim();
-
     if (text.isEmpty) return;
 
     await CommentService().addComment(postId: widget.postId, text: text);
+    await _cacheReply(text);
+
+    if (!mounted) return;
 
     final node = _CommentNode(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -180,6 +185,27 @@ class _CommentsPageState extends State<CommentsPage> {
 
     _input.clear();
     _focus.unfocus();
+  }
+
+  Future<void> _cacheReply(String text) async {
+    try {
+      final userId = await getCurrentUserId();
+      if (userId == null) return;
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'profile_replies_$userId';
+      final existing = prefs.getString(key);
+      final list = existing != null ? (jsonDecode(existing) as List) : [];
+      list.insert(0, {
+        '_id': DateTime.now().millisecondsSinceEpoch.toString(),
+        'postId': widget.postId,
+        'postAuthorName': widget.postAuthorName,
+        'postAuthorAvatar': widget.postAuthorAvatar,
+        'text': text,
+        'time': 'just now',
+        'likeCount': 0,
+      });
+      await prefs.setString(key, jsonEncode(list));
+    } catch (_) {}
   }
 
   @override
@@ -234,9 +260,16 @@ class _CommentsPageState extends State<CommentsPage> {
                         CircleAvatar(
                           radius: 25,
                           foregroundImage: _avatarProvider(authorAvatar),
-                          onForegroundImageError: _avatarProvider(authorAvatar) != null ? (_, __) {} : null,
+                          onForegroundImageError:
+                              _avatarProvider(authorAvatar) != null
+                              ? (_, __) {}
+                              : null,
                           backgroundColor: Colors.grey.shade200,
-                          child: const Icon(Icons.person, size: 22, color: Colors.white),
+                          child: const Icon(
+                            Icons.person,
+                            size: 22,
+                            color: Colors.white,
+                          ),
                         ),
                         const SizedBox(width: 18),
                       ],
@@ -423,10 +456,19 @@ class _CommentsPageState extends State<CommentsPage> {
                   if (widget.showAvatars) ...[
                     CircleAvatar(
                       radius: 20,
-                      foregroundImage: _avatarProvider(widget.currentUserAvatar),
-                      onForegroundImageError: _avatarProvider(widget.currentUserAvatar) != null ? (_, __) {} : null,
+                      foregroundImage: _avatarProvider(
+                        widget.currentUserAvatar,
+                      ),
+                      onForegroundImageError:
+                          _avatarProvider(widget.currentUserAvatar) != null
+                          ? (_, __) {}
+                          : null,
                       backgroundColor: Colors.grey.shade200,
-                      child: const Icon(Icons.person, size: 18, color: Colors.white),
+                      child: const Icon(
+                        Icons.person,
+                        size: 18,
+                        color: Colors.white,
+                      ),
                     ),
                     const SizedBox(width: 8),
                   ],
@@ -770,9 +812,16 @@ class _CommentTile extends StatelessWidget {
                 CircleAvatar(
                   radius: 20,
                   foregroundImage: _avatarProvider(comment.avatar),
-                  onForegroundImageError: _avatarProvider(comment.avatar) != null ? (_, __) {} : null,
+                  onForegroundImageError:
+                      _avatarProvider(comment.avatar) != null
+                      ? (_, __) {}
+                      : null,
                   backgroundColor: Colors.grey.shade200,
-                  child: const Icon(Icons.person, size: 18, color: Colors.white),
+                  child: const Icon(
+                    Icons.person,
+                    size: 18,
+                    color: Colors.white,
+                  ),
                 ),
                 const SizedBox(width: 10),
               ],
