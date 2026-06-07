@@ -17,12 +17,12 @@ class MyProfile {
   });
 
   factory MyProfile.fromJson(Map<String, dynamic> j) => MyProfile(
-        id: j['id']?.toString() ?? '',
-        displayName: j['displayName'] as String? ?? '',
-        email: j['email'] as String? ?? '',
-        photoURL: j['photoURL'] as String?,
-        bio: j['bio'] as String? ?? '',
-      );
+    id: j['id']?.toString() ?? '',
+    displayName: j['displayName'] as String? ?? '',
+    email: j['email'] as String? ?? '',
+    photoURL: j['photoURL'] as String?,
+    bio: j['bio'] as String? ?? '',
+  );
 }
 
 Future<MyProfile> fetchMyProfile() async {
