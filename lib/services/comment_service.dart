@@ -1,49 +1,25 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'api_client.dart';
 
 class CommentService {
-  final _db = FirebaseFirestore.instance;
-  final _auth = FirebaseAuth.instance;
+  Future<List<Map<String, dynamic>>> getComments(String postId) async {
+    final r = await apiGet('/posts/$postId/comments');
+    final list = expectJsonList(r);
+    return list.cast<Map<String, dynamic>>();
+  }
 
-  Future<void> addComment({
+  Future<Map<String, dynamic>> addComment({
     required String postId,
     required String text,
   }) async {
-    final uid = _auth.currentUser!.uid;
-
-    await _db.collection('posts').doc(postId).collection('comments').add({
-      'userId': uid,
-      'text': text,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    await _db.collection('posts').doc(postId).update({
-      'commentCount': FieldValue.increment(1),
-    });
-  }
-
-  Stream<QuerySnapshot> getComments(String postId) {
-    return _db
-        .collection('posts')
-        .doc(postId)
-        .collection('comments')
-        .orderBy('createdAt', descending: true)
-        .snapshots();
+    final r = await apiPost('/posts/$postId/comments', {'text': text});
+    return expectJson(r);
   }
 
   Future<void> deleteComment({
     required String postId,
     required String commentId,
   }) async {
-    await _db
-        .collection('posts')
-        .doc(postId)
-        .collection('comments')
-        .doc(commentId)
-        .delete();
-
-    await _db.collection('posts').doc(postId).update({
-      'commentCount': FieldValue.increment(-1),
-    });
+    final r = await apiDelete('/posts/$postId/comments/$commentId');
+    expectJson(r);
   }
 }

@@ -1,12 +1,12 @@
 // lib/verify.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:http/http.dart' as http;
 import 'package:iconify_flutter/iconify_flutter.dart';
 import 'package:iconify_flutter/icons/uil.dart';
 
 import 'package:ifeed/profile.dart';
+import 'services/api_client.dart' show getCurrentUserId, kBaseUrl;
 
 class VerifyScreen extends StatefulWidget {
   final String uid;
@@ -19,7 +19,7 @@ class VerifyScreen extends StatefulWidget {
     super.key,
     required this.uid,
     required this.email,
-    this.backendUrl = "https://ifeed-backend.onrender.com",
+    this.backendUrl = kBaseUrl,
   });
 
   @override
@@ -27,7 +27,6 @@ class VerifyScreen extends StatefulWidget {
 }
 
 class VerifyScreenState extends State<VerifyScreen> {
-  final _db = FirebaseFirestore.instance;
 
   // 6 boxes for 6 digits
   final List<TextEditingController> _ctls = List.generate(
@@ -64,7 +63,7 @@ class VerifyScreenState extends State<VerifyScreen> {
     });
 
     try {
-      final uri = Uri.parse('${widget.backendUrl}/verify-otp');
+      final uri = Uri.parse('${widget.backendUrl}/otp/verify');
       final resp = await http
           .post(
             uri,
@@ -74,19 +73,16 @@ class VerifyScreenState extends State<VerifyScreen> {
           .timeout(const Duration(seconds: 20));
 
       if (resp.statusCode == 200) {
-        // Mark verified flag for your app logic (optional but nice to have)
-        await _db.collection('users').doc(widget.uid).set({
-          'emailOtpVerified': true,
-          'emailVerifiedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-
+        final userId = await getCurrentUserId();
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Verification successful!')),
         );
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const ProfileUserScreen()),
+          MaterialPageRoute(
+            builder: (_) => ProfileUserScreen(userId: userId ?? widget.uid),
+          ),
         );
       } else {
         String msg = 'Verification failed.';
@@ -112,7 +108,7 @@ class VerifyScreenState extends State<VerifyScreen> {
     });
 
     try {
-      final uri = Uri.parse('${widget.backendUrl}/send-otp');
+      final uri = Uri.parse('${widget.backendUrl}/otp/send');
       final resp = await http
           .post(
             uri,

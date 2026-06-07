@@ -1,9 +1,8 @@
 // lib/profile.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-
+import 'services/api_client.dart';
+import 'services/user_profile_service.dart';
 import 'package:iconify_flutter/iconify_flutter.dart';
 import 'package:iconify_flutter/icons/ph.dart';
 import 'package:iconify_flutter/icons/ion.dart';
@@ -30,7 +29,9 @@ const String _defaultAvatar = '';
 enum _Tab { iFeed, shuffle, media, replies }
 
 class ProfileUserScreen extends StatefulWidget {
-  const ProfileUserScreen({super.key});
+  final String userId;
+
+  const ProfileUserScreen({super.key, required this.userId});
 
   @override
   State<ProfileUserScreen> createState() => _ProfileUserScreenState();
@@ -42,10 +43,30 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
 
   // Local editable profile pieces (used for Edit page preview)
   String? _profileAvatarPath;
-  String _displayNameFallback = ''; // fallback if Firestore missing
+  String _displayNameFallback = '';
   String _bio = 'Bio';
+  String? _currentUserId;
 
-  // ---------- Open Edit page ----------
+  @override
+  void initState() {
+    super.initState();
+    getCurrentUserId().then((id) {
+      if (mounted) setState(() => _currentUserId = id);
+    });
+  }
+
+  ImageProvider? _headerAvatarImage(String? photoUrl) {
+    if (_profileAvatarPath != null && _profileAvatarPath!.isNotEmpty) {
+      return FileImage(File(_profileAvatarPath!));
+    }
+
+    if (photoUrl != null && photoUrl.isNotEmpty) {
+      return NetworkImage(photoUrl);
+    }
+
+    return null;
+  }
+
   Future<void> openEditProfile(
     BuildContext context, {
     required String currentName,
@@ -61,26 +82,35 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
         ),
       ),
     );
+
     if (!mounted || res == null) return;
 
-    setState(() {
-      if (res.avatarPath != null && res.avatarPath!.isNotEmpty) {
-        _profileAvatarPath = res.avatarPath;
-      }
-      if (res.name.isNotEmpty) _displayNameFallback = res.name;
-      _bio = res.bio;
-    });
-  }
+    try {
+      await updateProfile(
+        displayName: res.name.isNotEmpty ? res.name : null,
+        bio: res.bio.isNotEmpty ? res.bio : null,
+        photo: (res.avatarPath != null && res.avatarPath!.isNotEmpty)
+            ? File(res.avatarPath!)
+            : null,
+      );
 
-  ImageProvider<Object>? _headerAvatarImage(String? photoUrl) {
-    if (_profileAvatarPath != null && _profileAvatarPath!.isNotEmpty) {
-      return FileImage(File(_profileAvatarPath!));
+      setState(() {
+        if (res.avatarPath != null && res.avatarPath!.isNotEmpty) {
+          _profileAvatarPath = res.avatarPath;
+        }
+        if (res.name.isNotEmpty) _displayNameFallback = res.name;
+        _bio = res.bio;
+      });
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile updated successfully')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Failed to update profile: $e')));
     }
-    if (photoUrl != null && photoUrl.isNotEmpty) {
-      return NetworkImage(photoUrl);
-    }
-    // Return null to let CircleAvatar show initials/backgroundColor gracefully.
-    return null;
   }
 
   // ---------- Nav ----------
@@ -124,42 +154,30 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = FirebaseAuth.instance;
-    final user = auth.currentUser;
-
-    if (user == null) {
-      return const Scaffold(body: Center(child: Text('Not signed in')));
+    if (_currentUserId == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final userDoc = FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid);
+    final isOwnProfile = _currentUserId == widget.userId;
 
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: userDoc.snapshots(),
+        child: FutureBuilder<Map<String, dynamic>>(
+          future: apiGet('/users/${widget.userId}').then(expectJson),
           builder: (context, snap) {
-            // Prepare values with safe fallbacks
-            String name = user.displayName ?? '';
-            String email = user.email ?? '';
-            String? photoURL = user.photoURL;
+            String name = '';
+            String email = '';
+            String? photoURL;
 
-            String day = '—', month = '—', year = '—', gender = '—';
-
-            if (snap.hasData && snap.data!.exists) {
-              final data = snap.data!.data()!;
+            if (snap.hasData) {
+              final data = snap.data!;
               final n = (data['displayName'] as String?)?.trim();
               if (n != null && n.isNotEmpty) name = n;
-              email = (data['email'] as String?) ?? email;
-              photoURL = (data['photoURL'] as String?) ?? photoURL;
-
-              final dob = (data['dob'] as Map?) ?? {};
-              day = (dob['day'] as String?) ?? day;
-              month = (dob['month'] as String?) ?? month;
-              year = (dob['year'] as String?) ?? year;
-              gender = (data['gender'] as String?) ?? gender;
+              email = (data['email'] as String?) ?? '';
+              photoURL = data['photoURL'] as String?;
+              final bio = (data['bio'] as String?) ?? '';
+              if (bio.isNotEmpty && _bio == 'Bio') _bio = bio;
             }
 
             // If still blank, use editable fallback (e.g., after Edit page)
@@ -228,34 +246,36 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
                             ),
                           ),
 
-                          // Edit button
-                          IconButton(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
+                          // Edit button (own profile only)
+                          if (isOwnProfile) ...[
+                            IconButton(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              icon: const Iconify(Uil.list_ul, size: 24),
+                              onPressed: () =>
+                                  openEditProfile(context, currentName: name),
                             ),
-                            icon: const Iconify(Uil.list_ul, size: 24),
-                            onPressed: () =>
-                                openEditProfile(context, currentName: name),
-                          ),
-                          IconButton(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 18,
-                              vertical: 8,
+                            IconButton(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 18,
+                                vertical: 8,
+                              ),
+                              icon: const Iconify(
+                                Fa6Regular.pen_to_square,
+                                size: 28,
+                              ),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => SttingPage(),
+                                  ),
+                                );
+                              },
                             ),
-                            icon: const Iconify(
-                              Fa6Regular.pen_to_square,
-                              size: 28,
-                            ),
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => SttingPage(),
-                                ),
-                              );
-                            },
-                          ),
+                          ],
 
                           // Avatar
                           Material(
@@ -309,14 +329,6 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
                       ),
                       const SizedBox(height: 10),
 
-                      // Extra line: gender + DOB from Firestore
-                      Text(
-                        'Gender: $gender • DOB: $day/$month/$year',
-                        style: const TextStyle(
-                          fontSize: 12.5,
-                          color: Colors.black54,
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -713,9 +725,10 @@ class _ProfilePostMedia extends StatelessWidget {
 
         // exactly 2 items
         if (items.length == 2) {
-          const aspect2 = 9 / 12;
+       const aspect2 = 1.0;
           final perTileW = (contentW - _gap) / 2;
           final rowH = (perTileW / aspect2).clamp(_minH, maxH);
+          
 
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: _side),
@@ -770,32 +783,26 @@ class _RoundedTile extends StatelessWidget {
       child: AspectRatio(
         aspectRatio: aspect,
         child: m.type == PMediaType.image
-    ? (m.isNetwork
-          ? Image.network(
-              m.path,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
-                print('PROFILE BROKEN IMAGE: ${m.path}');
-                return Container(
-                  color: Colors.grey.shade200,
-                  child: const Center(
-                    child: Icon(
-                      Icons.broken_image,
-                      size: 50,
-                      color: Colors.grey,
-                    ),
-                  ),
-                );
-              },
-            )
-          : Image.file(
-              File(m.path),
-              fit: BoxFit.cover,
-            ))
-    : _CoverVideo(
-        path: m.path,
-        isNetwork: m.isNetwork,
-      ),
+            ? (m.isNetwork
+                  ? Image.network(
+                      m.path,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        print('PROFILE BROKEN IMAGE: ${m.path}');
+                        return Container(
+                          color: Colors.grey.shade200,
+                          child: const Center(
+                            child: Icon(
+                              Icons.broken_image,
+                              size: 50,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        );
+                      },
+                    )
+                  : Image.file(File(m.path), fit: BoxFit.cover))
+            : _CoverVideo(path: m.path, isNetwork: m.isNetwork),
       ),
     );
   }

@@ -12,19 +12,16 @@ import 'package:iconify_flutter/icons/teenyicons.dart';
 import 'package:iconify_flutter/icons/uil.dart';
 import 'package:iconify_flutter/icons/tabler.dart';
 import 'package:iconify_flutter/icons/ri.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'services/api_client.dart';
 import 'services/post_service.dart';
 import 'services/like_service.dart';
+import 'services/user_profile_service.dart';
 import 'profile.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-
-//Firebase and Google
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'share_popup.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import 'post_modal.dart' as model;
 import 'activity_page.dart';
@@ -32,28 +29,37 @@ import 'suggestions_page.dart';
 import 'reel_page.dart';
 import 'comments_page.dart' as reply;
 import 'listcontact.dart' as lc;
-import 'profile.dart' as profile;
 
 Offset? _tapPosition;
-const String defaultAvatarAsset = 'assets/images/default_avatar.png';
 
 void main() => runApp(const MaterialApp(home: MainfeedScreen()));
 
 ///======================= STORY MODELS (multi-item) =======================
 class Story {
-  Story({required this.id, required this.name, required this.items});
+  Story({
+    required this.id,
+    required this.name,
+    required this.items,
+    this.avatar = '',
+    this.hasNew = false,
+  }) : itemCount = items.length;
 
   final String id;
   final String name;
+  final String avatar; // user profile photo URL
   final List<StoryItem> items;
+  final int itemCount;
+  final bool hasNew;
 
-  bool get hasItems => items.isNotEmpty;
+  bool get hasItems => itemCount > 0;
+  String get summary => itemCount == 1 ? '1 story' : '$itemCount stories';
 
   ImageProvider? get coverImageProvider {
     if (items.isEmpty) return null;
     final first = items.first;
     if (first.isVideo) {
       if (first.thumbBytes != null) return MemoryImage(first.thumbBytes!);
+      if (avatar.isNotEmpty) return NetworkImage(avatar);
       return null;
     } else {
       if (first.isLocal) {
@@ -90,41 +96,6 @@ class MainfeedScreen extends StatefulWidget {
   State<MainfeedScreen> createState() => _MainfeedScreenState();
 }
 
-//Helper Story Avatar Widget
-Future<String> _getMyAvatar() async {
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null) return '';
-
-  final doc = await FirebaseFirestore.instance
-      .collection('users')
-      .doc(user.uid)
-      .get();
-
-  final data = doc.data();
-
-  return data?['photoURL'] ?? user.photoURL ?? '';
-}
-
-// Helper Story Name Widget
-Future<String> _getMyName() async {
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null) return 'User';
-
-  final doc = await FirebaseFirestore.instance
-      .collection('users')
-      .doc(user.uid)
-      .get();
-
-  final data = doc.data();
-
-  return data?['displayName'] ?? user.displayName ?? 'User';
-}
-
-// Helper Story Name + Avatar Widget
-Future<({String name, String? avatar})> _getMyProfile() async {
-  return (name: await _getMyName(), avatar: await _getMyAvatar());
-}
-
 class _MainfeedScreenState extends State<MainfeedScreen> {
   final List<_Post> _feedPosts = [];
   final List<ReelItem> _reels = <ReelItem>[];
@@ -138,132 +109,154 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
 
   String _feedTab = 'for_you';
 
+  String _currentUserId = '';
+  String _currentUserName = '';
+  String _currentUserAvatar = '';
+
   @override
   void initState() {
     super.initState();
+    _initWithAuth();
+  }
 
+  Future<void> _initWithAuth() async {
+    final loggedIn = await isLoggedIn();
+    if (!loggedIn || !mounted) return;
+    final uid = await getCurrentUserId();
+    final profile = await _getCurrentProfile();
+    if (!mounted) return;
+    setState(() {
+      _currentUserId = uid ?? '';
+      _currentUserName = profile.name;
+      _currentUserAvatar = profile.avatar ?? '';
+    });
     loadPosts();
     loadStories();
   }
 
-  // Load posts from Firestore and convert to _Post model Funtion
   Future<void> loadPosts() async {
-    final snap = await FirebaseFirestore.instance
-        .collection('posts')
-        .orderBy('createdAt', descending: true)
-        .get();
-
-    final posts = snap.docs
-        .map((doc) {
-          final data = doc.data();
-
-          final mediaUrls = List<String>.from(data['media'] ?? []);
-
-          if (mediaUrls.isEmpty) {
-            return null;
-          }
-
-          return _Post(
-            id: doc.id,
-            username: data['authorName'] ?? 'User',
-            avatar: data['authorAvatar'] ?? '',
-            time: 'just now',
-            caption: data['caption'] ?? '',
-            likeCount: data['likeCount'] ?? 0,
-            commentCount: data['commentCount'] ?? 0,
-            media: mediaUrls.map((url) {
-              return _FeedMedia(
-                path: url,
-                type: MediaType.image,
-                isNetwork: true,
-              );
-            }).toList(),
+    try {
+      final r = await apiGet('/posts');
+      final list = expectJsonList(r);
+      final posts = list.map((raw) {
+        final data = raw as Map<String, dynamic>;
+        final mediaRaw = (data['media'] as List?) ?? [];
+        final mediaList = mediaRaw.map((m) {
+          final url = (m['url'] as String?) ?? '';
+          final typeStr = (m['type'] as String?) ?? 'image';
+          return _FeedMedia(
+            path: url,
+            type: typeStr == 'video' ? MediaType.video : MediaType.image,
+            isNetwork: true,
           );
-        })
-        .whereType<_Post>()
-        .toList();
+        }).toList();
 
-    setState(() {
-      _feedPosts.clear();
-      _feedPosts.addAll(posts);
-    });
+        return _Post(
+          id: (data['_id'] ?? data['id'] ?? '').toString(),
+          authorId: (data['authorId'] ?? '').toString(),
+          username: (data['authorName'] ?? 'User').toString(),
+          avatar: (data['authorAvatar'] ?? '').toString(),
+          time: 'just now',
+          caption: (data['caption'] ?? '').toString(),
+          likeCount: (data['likeCount'] as num?)?.toInt() ?? 0,
+          commentCount: (data['commentCount'] as num?)?.toInt() ?? 0,
+          isLiked: data['isLiked'] == true,
+          media: mediaList,
+        );
+      }).toList();
+
+      if (!mounted) return;
+      setState(() {
+        _feedPosts.clear();
+        _feedPosts.addAll(posts);
+      });
+    } catch (e) {
+      debugPrint('loadPosts error: $e');
+    }
   }
 
-  // Load stories from Firestore and convert to Story model Function
   Future<void> loadStories() async {
-    final snap = await FirebaseFirestore.instance
-        .collection('stories')
-        .orderBy('createdAt', descending: true)
-        .get();
+    final myUid = await getCurrentUserId();
+    if (myUid == null) return;
+    try {
+      final r = await apiGet('/stories');
+      final list = expectJsonList(r);
 
-    final loadedStories = snap.docs.map((doc) {
-      final data = doc.data();
+      // Group by userId
+      final Map<String, List<StoryItem>> itemsMap = {};
+      final Map<String, String> nameMap = {};
+      final Map<String, String> avatarMap = {};
 
-      return Story(
-        id: doc.id,
-        name: data['displayName'] ?? 'User',
-        items: [
+      for (final raw in list) {
+        final data = raw as Map<String, dynamic>;
+        final uid = (data['userId'] ?? '').toString();
+        if (uid.isEmpty) continue;
+
+        if (!itemsMap.containsKey(uid)) {
+          itemsMap[uid] = [];
+          nameMap[uid] = (data['displayName'] ?? 'User').toString();
+          avatarMap[uid] = (data['avatarUrl'] ?? '').toString();
+        }
+        itemsMap[uid]!.add(
           StoryItem(
-            isVideo: data['isVideo'] ?? false,
+            isVideo: data['isVideo'] == true,
             isLocal: false,
-            url: data['mediaUrl'],
-            caption: data['caption'],
+            url: data['mediaUrl']?.toString(),
+            caption: data['caption']?.toString(),
           ),
-        ],
-      );
-    }).toList();
+        );
+      }
 
-    setState(() {
-      stories = loadedStories;
-    });
+      Story? myStoryObj;
+      final List<Story> others = [];
+
+      for (final uid in itemsMap.keys) {
+        final isMe = uid == myUid;
+        final s = Story(
+          id: uid,
+          name: isMe
+              ? (_currentUserName.isNotEmpty ? _currentUserName : nameMap[uid]!)
+              : nameMap[uid]!,
+          avatar: isMe
+              ? (_currentUserAvatar.isNotEmpty
+                    ? _currentUserAvatar
+                    : avatarMap[uid]!)
+              : avatarMap[uid]!,
+          items: itemsMap[uid]!,
+          hasNew: !isMe,
+        );
+        if (isMe) {
+          myStoryObj = s;
+        } else {
+          others.add(s);
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        myStory = myStoryObj;
+        stories = others;
+      });
+    } catch (e) {
+      debugPrint('loadStories error: $e');
+    }
   }
 
-  //Post deletion function that removes the post document from Firestore and deletes associated media from Firebase Storage. It also updates the local feed state to reflect the deletion immediately.
   Future<void> deletePost({
     required String postId,
     required List<String> mediaUrls,
   }) async {
     try {
-      // Delete Storage files
-      for (final url in mediaUrls) {
-        try {
-          await FirebaseStorage.instance.refFromURL(url).delete();
-        } catch (_) {}
-      }
-
-      // Delete Firestore document
-      await FirebaseFirestore.instance.collection('posts').doc(postId).delete();
-
-      // Remove from UI immediately
-      setState(() {
-        _feedPosts.removeWhere((p) => p.id == postId);
-      });
-
-      print('Post deleted successfully');
+      await PostService().deletePost(postId);
+      setState(() => _feedPosts.removeWhere((p) => p.id == postId));
     } catch (e) {
-      print('Delete error: $e');
+      debugPrint('Delete error: $e');
     }
   }
 
   Future<({String name, String? avatar})> _getCurrentProfile() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) throw Exception('Not signed in');
-
-    final snap = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .get();
-
-    final data = snap.data();
-
-    final name = (data?['displayName'] as String?)?.trim().isNotEmpty == true
-        ? (data!['displayName'] as String).trim()
-        : (user.displayName ??
-              (user.email != null ? user.email!.split('@').first : 'User'));
-
-    final avatar = (data?['photoURL'] as String?) ?? user.photoURL;
-
-    return (name: name, avatar: avatar);
+    final profile = await fetchMyProfile();
+    return (name: profile.displayName, avatar: profile.photoURL);
   }
 
   bool _isVideoPath(String p) {
@@ -308,6 +301,7 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
             ],
           ),
         ),
+
         const PopupMenuDivider(),
         PopupMenuItem(
           value: 'following',
@@ -330,44 +324,36 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
     });
   }
 
-  /// Pick multiple media for ONE story, optional shared caption
   Future<void> _addStory() async {
+    final myUid = await getCurrentUserId();
+    if (myUid == null) return;
+
     final List<XFile> files = await _storyPicker.pickMultipleMedia();
     if (files.isEmpty) return;
+    if (!mounted) return;
 
     final text = await askStoryText(context);
+    if (!mounted) return;
 
-    final List<StoryItem> items = [];
     for (final f in files) {
-      final isVid = _isVideoPath(f.path);
-      Uint8List? thumb;
-      if (isVid) {
-        try {
-          thumb = await VideoThumbnail.thumbnailData(
-            video: f.path,
-            imageFormat: ImageFormat.PNG,
-            quality: 60,
-          );
-        } catch (_) {}
+      try {
+        final isVid = _isVideoPath(f.path);
+        await apiMultipart(
+          method: 'POST',
+          path: '/stories',
+          fields: {
+            'isVideo': isVid.toString(),
+            if (text != null && text.isNotEmpty) 'caption': text,
+          },
+          files: [(field: 'media', file: File(f.path))],
+        );
+      } catch (e) {
+        debugPrint('Story upload error: $e');
       }
-      items.add(
-        StoryItem(
-          isVideo: isVid,
-          isLocal: true,
-          path: f.path,
-          thumbBytes: thumb,
-          caption: (text != null && text.isNotEmpty) ? text : null,
-        ),
-      );
     }
 
-    setState(() {
-      myStory = Story(
-        id: 'my_${DateTime.now().millisecondsSinceEpoch}',
-        name: 'Your story',
-        items: items,
-      );
-    });
+    if (!mounted) return;
+    await loadStories();
   }
 
   Future<String?> askStoryText(BuildContext context) async {
@@ -412,8 +398,10 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
     );
     if (newPost == null) return;
 
+    final myUid = await getCurrentUserId();
     final _Post converted = _Post(
       id: newPost.id,
+      authorId: myUid ?? '',
       username: newPost.authorName,
       avatar: newPost.authorAvatar,
       time: newPost.timeText,
@@ -444,7 +432,7 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
             music: 'Original Audio',
             avatarUrl: newPost.authorAvatar.isNotEmpty
                 ? newPost.authorAvatar
-                : 'https://i.pravatar.cc/150?img=32',
+                : '',
             authorName: newPost.authorName,
             likes: 0,
             comments: 0,
@@ -464,7 +452,7 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
 
   String _replyHeaderAvatar(String avatar) {
     if (avatar.isNotEmpty && avatar.startsWith('http')) return avatar;
-    return 'https://i.pravatar.cc/150?img=68';
+    return '';
   }
 
   List<reply.PostMedia> _toReplyMedia(List<_FeedMedia> items) {
@@ -488,28 +476,12 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
   }
 
   Future<void> _openComments(_Post post) async {
-    final user = FirebaseAuth.instance.currentUser;
+    final String currentUserName = _currentUserName.isNotEmpty
+        ? _currentUserName
+        : 'User';
+    final String currentUserAvatar = _currentUserAvatar;
 
-    String currentUserName = 'User';
-    String currentUserAvatar = '';
-
-    if (user != null) {
-      try {
-        final doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
-
-        final data = doc.data();
-
-        currentUserName = data?['displayName'] ?? user.displayName ?? 'User';
-
-        currentUserAvatar = data?['photoURL'] ?? user.photoURL ?? '';
-      } catch (e) {
-        print('Error loading profile: $e');
-      }
-    }
-
+    if (!mounted) return;
     final updated = await Navigator.push<List<reply.Comment>>(
       context,
       MaterialPageRoute(
@@ -553,10 +525,6 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
   Widget build(BuildContext context) {
     // my story cover
     final my = myStory;
-    final ImageProvider? myProvider = my?.coverImageProvider;
-    final bool myIsVideo = (my?.items.isNotEmpty ?? false)
-        ? my!.items.first.isVideo
-        : false;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -628,89 +596,82 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
               child: Container(
                 color: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 18),
-                child: SizedBox(
-                  height: 105,
-                  child: ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 30),
-                    scrollDirection: Axis.horizontal,
-                    itemBuilder: (_, i) {
-                      // The first item is always the user's own story (or "Add Story" if no story yet)
-                      if (i == 0) {
-                        return FutureBuilder<({String name, String? avatar})>(
-                          future: _getMyProfile(),
-                          builder: (context, snapshot) {
-                            final myName = snapshot.data?.name ?? 'Your story';
-                            final myAvatar = snapshot.data?.avatar ?? '';
+                child: Container(
+                  color: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 18),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 30),
+                        child: Row(
+                          children: [
+                            const Text(
+                              'Stories',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const Spacer(),
+                            if (stories.isNotEmpty)
+                              TextButton(
+                                onPressed: () => _openStory(stories.first),
+                                child: const Text('Watch all'),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        height: 130,
+                        child: ListView.separated(
+                          padding: const EdgeInsets.symmetric(horizontal: 30),
+                          scrollDirection: Axis.horizontal,
+                          itemBuilder: (_, i) {
+                            // Index 0 = current user's story / add-story button
+                            if (i == 0) {
+                              final myAvatar = _currentUserAvatar;
+                              final myName = _currentUserName.isNotEmpty
+                                  ? _currentUserName
+                                  : 'Your story';
+                              return _StoryTile(
+                                story:
+                                    my ??
+                                    Story(
+                                      id: 'me',
+                                      name: myName,
+                                      avatar: myAvatar,
+                                      items: const [],
+                                      hasNew: false,
+                                    ),
+                                isCurrentUser: true,
+                                onTap: () =>
+                                    my == null ? _addStory() : _openStory(my),
+                                onPlusTap: _addStory,
+                                label: my == null ? 'Add story' : my.summary,
+                              );
+                            }
 
-                            return Column(
-                              children: [
-                                GestureDetector(
-                                  onTap: () =>
-                                      my == null ? _addStory() : _openStory(my),
-                                  child: StoryRing.fromProvider(
-                                    imageProvider: myAvatar.isNotEmpty
-                                        ? NetworkImage(myAvatar)
-                                        : (myProvider ??
-                                              NetworkImage(_avatars.first)),
-                                    isVideo: myIsVideo,
-                                    showPlus: true,
-                                    onPlusTap: _addStory,
-                                  ),
-                                ),
+                            // Other users' stories
+                            final s = stories[i - 1];
+                            final ImageProvider? imgProvider =
+                                s.avatar.isNotEmpty
+                                ? NetworkImage(s.avatar)
+                                : s.coverImageProvider;
 
-                                const SizedBox(height: 8),
-
-                                SizedBox(
-                                  width: 70,
-                                  child: Text(
-                                    myName,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(fontSize: 11),
-                                  ),
-                                ),
-                              ],
+                            return _StoryTile(
+                              story: s,
+                              onTap: () => _openStory(s),
+                              imageProvider: imgProvider,
                             );
                           },
-                        );
-                      }
-                      // Other items are friends' stories
-
-                      if (stories.isEmpty) {
-                        return const SizedBox.shrink();
-                      }
-
-                      // -1 because of "Add Story" item at index 0
-                      final s = stories[i - 1];
-
-                      final imgProvider =
-                          s.coverImageProvider ??
-                          const AssetImage('assets/images/default_avatar.png');
-
-                      return Column(
-                        children: [
-                          GestureDetector(
-                            onTap: () => _openStory(s),
-                            child: StoryRing.fromProvider(
-                              imageProvider: imgProvider,
-                              isVideo: s.items.first.isVideo,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          SizedBox(
-                            width: 70,
-                            child: Text(
-                              s.name,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(fontSize: 11),
-                            ),
-                          ),
-                        ],
-                      );
-                    },
-                    separatorBuilder: (_, __) => const SizedBox(width: 22),
-                    itemCount: stories.length + 1,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(width: 18),
+                          itemCount: stories.length + 1,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -720,8 +681,6 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
             if (_feedPosts.isEmpty)
               const SliverToBoxAdapter(child: _EmptyFeed()),
 
-           
-           
             // -------------------- Feed --------------------
             SliverList(
               delegate: SliverChildBuilderDelegate(
@@ -733,23 +692,19 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
 
                   return _PostCard(
                     post: post,
+                    currentUserId: _currentUserId,
                     onOpenComments: () => _openComments(post),
 
                     //LIke Icon
                     onLike: () async {
                       if (!post.isLiked) {
-                        // Update UI immediately
                         setState(() {
                           post.isLiked = true;
                           post.likeCount++;
                         });
-
-                        print("LIKE COUNT = ${post.likeCount}");
-
                         try {
                           await LikeService().likePost(post.id);
                         } catch (e) {
-                          // Rollback if Firebase fails
                           setState(() {
                             post.isLiked = false;
                             post.likeCount--;
@@ -760,9 +715,6 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
                           post.isLiked = false;
                           post.likeCount--;
                         });
-
-                        print("LIKE COUNT = ${post.likeCount}");
-
                         try {
                           await LikeService().unlikePost(post.id);
                         } catch (e) {
@@ -778,7 +730,9 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
                         setState(() => post.isShared = !post.isShared),
                     onRepost: () => setState(() => post.shareCount++),
                     formatCount: _formatCount,
-                    reels: _reels, // for popup "View Reel"
+                    reels: _reels,
+                    currentUserName: _currentUserName,
+                    currentUserAvatar: _currentUserAvatar,
                   );
                 },
                 childCount: _feedPosts.isEmpty ? 0 : _feedPosts.length * 2 - 1,
@@ -792,12 +746,12 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
       bottomNavigationBar: _BottomBar(
         onAdd: () => _handleAddPost(context),
         onReels: _openReels,
-        onProfile: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ProfileUserScreen(userId: FirebaseAuth.instance.currentUser!.uid),
-            ),
+        onProfile: () async {
+          final nav = Navigator.of(context);
+          final uid = await getCurrentUserId();
+          if (uid == null || !mounted) return;
+          nav.push(
+            MaterialPageRoute(builder: (_) => ProfileUserScreen(userId: uid)),
           );
         },
       ),
@@ -836,13 +790,13 @@ class _EmptyFeed extends StatelessWidget {
   }
 }
 
-
-
 /// ------------------------- Story Ring -------------------------
 class StoryRing extends StatelessWidget {
   final String? imageUrl;
   final bool showPlus;
   final bool isVideo;
+  final bool hasNew;
+  final int badgeCount;
   final ImageProvider? _provider;
   final VoidCallback? onPlusTap;
 
@@ -850,9 +804,11 @@ class StoryRing extends StatelessWidget {
     Key? key,
     required String imageUrl,
     this.showPlus = false,
+    this.isVideo = false,
+    this.hasNew = false,
+    this.badgeCount = 0,
     this.onPlusTap,
   }) : imageUrl = imageUrl,
-       isVideo = false,
        _provider = null,
        super(key: key);
 
@@ -861,6 +817,8 @@ class StoryRing extends StatelessWidget {
     required ImageProvider? imageProvider,
     this.showPlus = false,
     this.isVideo = false,
+    this.hasNew = false,
+    this.badgeCount = 0,
     this.onPlusTap,
   }) : imageUrl = null,
        _provider = imageProvider,
@@ -874,17 +832,23 @@ class StoryRing extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final outerGradient = showPlus || hasNew
+        ? const SweepGradient(
+            colors: [Color(0xffb14cff), Color(0xffff4cf0), Color(0xffb14cff)],
+            stops: [0.0, 0.55, 1.0],
+          )
+        : null;
+
     return Stack(
       clipBehavior: Clip.none,
       children: [
         Container(
           width: 80,
           height: 80,
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             shape: BoxShape.circle,
-            gradient: SweepGradient(
-              colors: [Color(0xffb14cff), Color(0xffff4cf0), Color(0xffb14cff)],
-            ),
+            gradient: outerGradient,
+            color: outerGradient == null ? Colors.grey.shade300 : null,
           ),
           child: Padding(
             padding: const EdgeInsets.all(3),
@@ -896,12 +860,46 @@ class StoryRing extends StatelessWidget {
               padding: const EdgeInsets.all(3),
               child: CircleAvatar(
                 radius: 34,
-                backgroundColor: const Color(0xFF222222),
-                backgroundImage: provider,
+                backgroundColor: Colors.grey.shade400,
+                foregroundImage: provider,
+                onForegroundImageError: provider != null ? (_, __) {} : null,
+                child: provider == null
+                    ? const Icon(Icons.person, color: Colors.white, size: 28)
+                    : null,
               ),
             ),
           ),
         ),
+        if (badgeCount > 1 && !showPlus)
+          Positioned(
+            bottom: -2,
+            right: -2,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Text(
+                badgeCount.toString(),
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        if (isVideo)
+          const Positioned(
+            bottom: 6,
+            left: 6,
+            child: CircleAvatar(
+              radius: 10,
+              backgroundColor: Colors.black54,
+              child: Iconify(Ph.play, size: 12, color: Colors.white),
+            ),
+          ),
         if (showPlus)
           Positioned(
             bottom: 0,
@@ -936,6 +934,76 @@ class StoryRing extends StatelessWidget {
   }
 }
 
+class _StoryTile extends StatelessWidget {
+  const _StoryTile({
+    super.key,
+    required this.story,
+    required this.onTap,
+    this.onPlusTap,
+    this.isCurrentUser = false,
+    this.imageProvider,
+    this.label,
+  });
+
+  final Story story;
+  final VoidCallback onTap;
+  final VoidCallback? onPlusTap;
+  final bool isCurrentUser;
+  final ImageProvider? imageProvider;
+  final String? label;
+
+  @override
+  Widget build(BuildContext context) {
+    final cover =
+        imageProvider ??
+        (story.avatar.isNotEmpty
+            ? NetworkImage(story.avatar)
+            : story.coverImageProvider);
+    final title = story.name.isNotEmpty ? story.name : 'Story';
+    final subtitle =
+        label ??
+        (story.itemCount > 0
+            ? story.summary
+            : (isCurrentUser ? 'Add your first story' : 'No stories yet'));
+
+    return SizedBox(
+      width: 84,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          GestureDetector(
+            onTap: onTap,
+            child: StoryRing.fromProvider(
+              imageProvider: cover,
+              badgeCount: story.itemCount,
+              isVideo: story.items.isNotEmpty && story.items.first.isVideo,
+              showPlus: isCurrentUser,
+              hasNew: story.hasNew,
+              onPlusTap: onPlusTap,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            title,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            style: const TextStyle(fontSize: 10, color: Colors.black54),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// ------------------------- Comments Preview -------------------------
 class _CommentsPreview extends StatelessWidget {
   const _CommentsPreview({
@@ -950,9 +1018,14 @@ class _CommentsPreview extends StatelessWidget {
   final void Function(reply.Comment) onReply;
   final void Function(reply.Comment) onLikeToggle;
 
-  ImageProvider _commentAvatar(String url) {
-    if (url.isEmpty) return const AssetImage(defaultAvatarAsset);
-    return NetworkImage(url);
+  Widget _commentAvatar(String url) {
+    return CircleAvatar(
+      radius: 20,
+      backgroundColor: Colors.grey.shade300,
+      foregroundImage: url.isNotEmpty ? NetworkImage(url) : null,
+      onForegroundImageError: url.isNotEmpty ? (_, __) {} : null,
+      child: const Icon(Icons.person, size: 20, color: Colors.white),
+    );
   }
 
   @override
@@ -975,10 +1048,7 @@ class _CommentsPreview extends StatelessWidget {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      CircleAvatar(
-                        radius: 20,
-                        backgroundImage: _commentAvatar(c.avatar),
-                      ),
+                      _commentAvatar(c.avatar),
                       const SizedBox(width: 18),
                       Expanded(
                         child: RichText(
@@ -1062,27 +1132,43 @@ class _CommentsPreview extends StatelessWidget {
 /// ------------------------- Post Card -------------------------
 class _PostCard extends StatelessWidget {
   final _Post post;
+  final String currentUserId;
   final VoidCallback onOpenComments;
   final VoidCallback onLike;
   final VoidCallback onShare;
   final VoidCallback onRepost;
   final String Function(int) formatCount;
   final List<ReelItem> reels;
+  final String currentUserName;
+  final String currentUserAvatar;
 
   const _PostCard({
     required this.post,
+    required this.currentUserId,
     required this.onOpenComments,
     required this.onLike,
     required this.onShare,
     required this.onRepost,
     required this.formatCount,
     required this.reels,
+    required this.currentUserName,
+    required this.currentUserAvatar,
   });
 
-  ImageProvider _avatarProvider(String avatar) {
-    if (avatar.isEmpty) return const AssetImage(defaultAvatarAsset);
-    if (avatar.startsWith('http')) return NetworkImage(avatar);
-    return AssetImage(avatar);
+  Widget _avatar(String url, double radius) {
+    final fallback = CircleAvatar(
+      radius: radius,
+      backgroundColor: Colors.grey.shade300,
+      child: Icon(Icons.person, size: radius, color: Colors.white),
+    );
+    if (url.isEmpty || !url.startsWith('http')) return fallback;
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: Colors.grey.shade300,
+      foregroundImage: NetworkImage(url),
+      onForegroundImageError: (_, __) {},
+      child: Icon(Icons.person, size: radius, color: Colors.white),
+    );
   }
 
   @override
@@ -1098,34 +1184,51 @@ class _PostCard extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(38, 10, 12, 5),
             child: Row(
               children: [
-                CircleAvatar(
-                  radius: 25,
-                  backgroundImage: _avatarProvider(post.avatar),
+                GestureDetector(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ProfileUserScreen(userId: post.authorId),
+                    ),
+                  ),
+                  child: _avatar(post.avatar, 25),
                 ),
 
                 const SizedBox(width: 18),
 
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        post.username,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 18,
-                        ),
+                  child: GestureDetector(
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            ProfileUserScreen(userId: post.authorId),
                       ),
-                      Text(
-                        post.time,
-                        style: const TextStyle(
-                          color: Colors.black54,
-                          fontSize: 12,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          post.username,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 18,
+                          ),
                         ),
-                      ),
-                    ],
+                        Text(
+                          post.time,
+                          style: const TextStyle(
+                            color: Colors.black54,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
+
+                if (post.authorId != currentUserId)
+                  _FollowButton(authorId: post.authorId),
 
                 IconButton(
                   icon: const Iconify(Mdi.dots_horizontal, size: 24),
@@ -1147,6 +1250,9 @@ class _PostCard extends StatelessWidget {
               ],
             ),
           ),
+
+          const SizedBox(height: 14),
+
           // Caption
           if (post.caption.isNotEmpty)
             Padding(
@@ -1162,7 +1268,13 @@ class _PostCard extends StatelessWidget {
             ),
 
           // Media
-          if (post.media.isNotEmpty) _PostMedia(post: post, reels: reels),
+          if (post.media.isNotEmpty)
+            _PostMedia(
+              post: post,
+              reels: reels,
+              currentUserName: currentUserName,
+              currentUserAvatar: currentUserAvatar,
+            ),
 
           // Actions Icon Row like comment share
           Padding(
@@ -1411,7 +1523,14 @@ double? _forcedAspectFrom(CardAspect a) {
 class _PostMedia extends StatelessWidget {
   final _Post post;
   final List<ReelItem> reels;
-  const _PostMedia({required this.post, required this.reels});
+  final String currentUserName;
+  final String currentUserAvatar;
+  const _PostMedia({
+    required this.post,
+    required this.reels,
+    required this.currentUserName,
+    required this.currentUserAvatar,
+  });
 
   static const double _side = 100.0;
   static const double _gap = 8;
@@ -1464,8 +1583,8 @@ class _PostMedia extends StatelessWidget {
                                 : 'file://${media.path}',
                             caption: 'Reel',
                             music: 'Original Audio',
-                            avatarUrl: 'wigeth:.currentUserAvatar',
-                            authorName: 'wigeth:.currentUserName',
+                            avatarUrl: currentUserAvatar,
+                            authorName: currentUserName,
                             likes: 0,
                             comments: 0,
                           ),
@@ -2020,26 +2139,9 @@ class _UploadPostPageState extends State<UploadPostPage> {
     });
   }
 
-  // Fetch current user's displayName/photo from Firestore
-
   Future<({String name, String? avatar})> _getCurrentProfile() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) throw Exception('Not signed in');
-
-    final snap = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .get();
-    final data = snap.data();
-
-    final name = (data?['displayName'] as String?)?.trim().isNotEmpty == true
-        ? (data!['displayName'] as String).trim()
-        : (user.displayName ??
-              (user.email != null ? user.email!.split('@').first : 'User'));
-
-    final avatar = (data?['photoURL'] as String?) ?? user.photoURL;
-
-    return (name: name, avatar: avatar);
+    final profile = await fetchMyProfile();
+    return (name: profile.displayName, avatar: profile.photoURL);
   }
 
   @override
@@ -2050,197 +2152,216 @@ class _UploadPostPageState extends State<UploadPostPage> {
 
   @override
   Widget build(BuildContext context) {
-    final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(28),
-      borderSide: const BorderSide(color: Color(0xFFE8E8E8)),
-    );
-
     return Scaffold(
+      backgroundColor: Colors.white,
       body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            SliverToBoxAdapter(
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(16, 48, 16, 12),
-                decoration: const BoxDecoration(
-                  border: Border(bottom: BorderSide(color: Color(0xFFEFEFEF))),
-                ),
-                child: const Center(
-                  child: Text(
-                    '',
-                    style: TextStyle(
-                      color: Color(0xFF22C55E),
-                      fontWeight: FontWeight.w800,
-                      fontSize: 30,
+        child: Column(
+          children: [
+            // ── Top bar ──
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(bottom: BorderSide(color: Color(0xFFEFEFEF))),
+              ),
+              child: Row(
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(color: Colors.black54, fontSize: 15),
                     ),
                   ),
-                ),
+                  const Spacer(),
+                  const Text(
+                    'New Post',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                  ),
+                  const Spacer(),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _canPost
+                            ? Colors.blue
+                            : Colors.grey.shade300,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 8,
+                        ),
+                        shape: const StadiumBorder(),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      onPressed: _canPost
+                          ? () async {
+                              final nav = Navigator.of(context);
+                              final allFiles = _media
+                                  .map((m) => m.file)
+                                  .toList();
+
+                              final postId = await PostService().createPost(
+                                caption: _text.text.trim(),
+                                files: allFiles,
+                              );
+
+                              final me = await _getCurrentProfile();
+
+                              final List<model.PostMedia> normalized = _media
+                                  .map<model.PostMedia>((pm) {
+                                    return pm.type == MediaType.video
+                                        ? model.PostMedia.videoFile(pm.file)
+                                        : model.PostMedia.imageFile(pm.file);
+                                  })
+                                  .toList();
+
+                              final result = model.Post(
+                                id: postId,
+                                authorName: me.name,
+                                authorAvatar: me.avatar ?? '',
+                                timeText: 'just now',
+                                caption: _text.text.trim(),
+                                media: normalized,
+                                comments: const [],
+                              );
+
+                              if (!mounted) return;
+                              nav.pop(result);
+                            }
+                          : null,
+                      child: const Text('Post'),
+                    ),
+                  ),
+                ],
               ),
             ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 19,
-                  vertical: 8,
-                ),
+
+            // ── Body (scrollable) ──
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('Cancel'),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-
-                    // (Optional) you can show current user here by fetching with a FutureBuilder
-                    const Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 25,
-                          backgroundImage: NetworkImage(
-                            '',
-                          ), // leave blank or wire a FutureBuilder
-                        ),
-                        SizedBox(width: 15),
-                        Text(
-                          '', // user name could go here with FutureBuilder
-                          style: TextStyle(
-                            fontWeight: FontWeight.w500,
-                            fontSize: 18,
-                          ),
-                        ),
-                        Spacer(),
-                        Text(
-                          'Share a new iFeed',
-                          style: TextStyle(
-                            color: Color.fromARGB(137, 7, 7, 7),
-                            fontSize: 18,
-                          ),
-                        ),
-                      ],
+                    // Current user row
+                    FutureBuilder<({String name, String? avatar})>(
+                      future: _getCurrentProfile(),
+                      builder: (context, snap) {
+                        final name = snap.data?.name ?? '';
+                        final avatar = snap.data?.avatar ?? '';
+                        return Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 20,
+                              backgroundColor: Colors.grey.shade200,
+                              foregroundImage: avatar.isNotEmpty
+                                  ? NetworkImage(avatar)
+                                  : null,
+                              onForegroundImageError: avatar.isNotEmpty
+                                  ? (_, __) {}
+                                  : null,
+                              child: const Icon(Icons.person, size: 20),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
 
-                    const SizedBox(height: 15),
+                    const SizedBox(height: 12),
+
+                    // Multiline text field (wraps)
                     TextField(
                       controller: _text,
                       onChanged: (_) => setState(() {}),
-                      maxLines: 1,
-                      decoration: InputDecoration(
+                      maxLines: null,
+                      minLines: 4,
+                      style: const TextStyle(fontSize: 16),
+                      decoration: const InputDecoration(
                         hintText: 'Write something ...',
+                        hintStyle: TextStyle(color: Colors.black38),
                         isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 19,
-                          vertical: 12,
-                        ),
-                        border: border,
-                        enabledBorder: border,
-                        focusedBorder: border.copyWith(
-                          borderSide: const BorderSide(
-                            color: Color.fromARGB(255, 17, 21, 223),
-                          ),
-                        ),
+                        contentPadding: EdgeInsets.zero,
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
                       ),
                     ),
-                    const SizedBox(height: 12),
 
-                    Row(
-                      children: [
-                        IconButton(
-                          tooltip: 'Media',
-                          onPressed: _pickMultipleMedia,
-                          icon: const Iconify(
-                            Tabler.photo_plus,
-                            color: Colors.blue,
+                    if (_location != null) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.location_on,
+                            size: 14,
+                            color: Colors.black45,
                           ),
-                        ),
-                        IconButton(
-                          tooltip: 'Camera (demo)',
-                          onPressed: _pickImage,
-                          icon: const Iconify(Ph.camera),
-                        ),
-                        IconButton(
-                          tooltip: 'Location',
-                          onPressed: () => setState(
-                            () => _location = _location == null
-                                ? 'Phnom Penh'
-                                : null,
+                          const SizedBox(width: 4),
+                          Text(
+                            _location!,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: Colors.black45,
+                            ),
                           ),
-                          icon: const Iconify(
-                            MaterialSymbols.add_location_alt,
-                            color: Colors.black54,
-                          ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      ),
+                    ],
 
-                    if (_media.isNotEmpty)
+                    if (_media.isNotEmpty) ...[
+                      const SizedBox(height: 12),
                       _PreviewWrap(
                         media: _media,
                         onRemove: (i) => setState(() => _media.removeAt(i)),
                       ),
+                    ],
 
-                    const SizedBox(height: 400),
-
-                    Row(
-                      children: [
-                        const Text(
-                          'Add a caption',
-                          style: TextStyle(color: Colors.black54),
-                        ),
-                        const Spacer(),
-                        FilledButton(
-                          onPressed: _canPost
-                              ? () async {
-                                  //  Fetch current user profile here
-                                  final imageFiles = _media
-                                      .where((m) => m.type == MediaType.image)
-                                      .map((m) => m.file)
-                                      .toList();
-
-                                  final postId = await PostService().createPost(
-                                    caption: _text.text.trim(),
-                                    images: imageFiles,
-                                  );
-
-                                  print("Post uploaded to Firestore");
-
-                                  final me = await _getCurrentProfile();
-
-                                  final List<model.PostMedia> normalized =
-                                      _media.map<model.PostMedia>((pm) {
-                                        return pm.type == MediaType.video
-                                            ? model.PostMedia.videoFile(pm.file)
-                                            : model.PostMedia.imageFile(
-                                                pm.file,
-                                              );
-                                      }).toList();
-
-                                  final result = model.Post(
-                                    id: postId,
-                                    authorName: me.name,
-                                    authorAvatar: me.avatar ?? '',
-                                    timeText: 'just now',
-                                    caption: _text.text.trim(),
-                                    media: normalized,
-                                    comments: const [],
-                                  );
-
-                                  if (!mounted) return;
-                                  Navigator.pop<model.Post>(context, result);
-                                }
-                              : null,
-
-                          child: const Text('Post'),
-                        ),
-                      ],
-                    ),
                     const SizedBox(height: 20),
                   ],
                 ),
+              ),
+            ),
+
+            // ── Action bar ──
+            Container(
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: Color(0xFFEFEFEF))),
+                color: Colors.white,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Media',
+                    onPressed: _pickMultipleMedia,
+                    icon: const Iconify(Tabler.photo_plus, color: Colors.blue),
+                  ),
+                  IconButton(
+                    tooltip: 'Camera',
+                    onPressed: _pickImage,
+                    icon: const Iconify(Ph.camera),
+                  ),
+                  IconButton(
+                    tooltip: 'Location',
+                    onPressed: () => setState(
+                      () => _location = _location == null ? 'Phnom Penh' : null,
+                    ),
+                    icon: const Iconify(
+                      MaterialSymbols.add_location_alt,
+                      color: Colors.black54,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -2269,6 +2390,7 @@ class _FeedMedia {
 
 class _Post {
   final String id;
+  final String authorId;
   final String username;
   final String avatar; // url or asset; empty -> default asset
   final String time;
@@ -2286,6 +2408,7 @@ class _Post {
 
   _Post({
     required this.id,
+    required this.authorId,
     required this.username,
     required this.avatar,
     required this.time,
@@ -2302,14 +2425,6 @@ class _Post {
 }
 
 final _names = ["tyda-one", "kunthear_kh", "back_tow", "dara.kh", "raa.kh"];
-
-final _avatars = [
-  "https://i.pravatar.cc/150?img=47",
-  "https://i.pravatar.cc/150?img=12",
-  "https://i.pravatar.cc/150?img=5",
-  "https://i.pravatar.cc/150?img=36",
-  "https://i.pravatar.cc/150?img=32",
-];
 
 /// ======================= MEDIA PREVIEW WRAP (in upload page) =======================
 class _PreviewWrap extends StatelessWidget {
@@ -2416,41 +2531,110 @@ class _StoryViewerState extends State<StoryViewer> {
               top: 0,
               left: 0,
               right: 0,
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Row(
+              child: Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black,
+                      Color(0xCC000000),
+                      Colors.transparent,
+                    ],
+                    stops: [0.0, 0.2, 1.0],
+                  ),
+                ),
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    IconButton(
-                      icon: const Iconify(
-                        MaterialSymbols.close,
-                        color: Colors.white,
-                      ),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                    Text(
-                      widget.story.name,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const Spacer(),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.5),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        '${_index + 1}/${items.length}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Iconify(
+                            MaterialSymbols.close,
+                            color: Colors.white,
+                          ),
+                          onPressed: () => Navigator.pop(context),
                         ),
-                      ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.45),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            '${_index + 1}/${items.length}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 18,
+                          backgroundColor: Colors.white24,
+                          foregroundImage: widget.story.avatar.isNotEmpty
+                              ? NetworkImage(widget.story.avatar)
+                              : null,
+                          child: widget.story.avatar.isEmpty
+                              ? const Icon(
+                                  Icons.person,
+                                  color: Colors.white,
+                                  size: 20,
+                                )
+                              : null,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                widget.story.name,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                widget.story.summary,
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.8),
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: List.generate(items.length, (i) {
+                        final active = i == _index;
+                        return Expanded(
+                          child: Container(
+                            height: 3,
+                            margin: const EdgeInsets.symmetric(horizontal: 2),
+                            decoration: BoxDecoration(
+                              color: active ? Colors.white : Colors.white24,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        );
+                      }),
                     ),
                   ],
                 ),
@@ -2526,19 +2710,29 @@ class _StorySlideState extends State<_StorySlide> {
             )
           : const Center(child: CircularProgressIndicator(strokeWidth: 2));
     } else {
-      final provider = it.isLocal
-          ? (it.path != null
-                ? FileImage(File(it.path!)) as ImageProvider?
-                : null)
-          : (it.url != null ? NetworkImage(it.url!) as ImageProvider? : null);
-      content = provider != null
-          ? Image(
-              image: provider,
-              fit: BoxFit.contain,
-              width: double.infinity,
-              height: double.infinity,
-            )
-          : const SizedBox.shrink();
+      if (it.isLocal && it.path != null) {
+        content = Image(
+          image: FileImage(File(it.path!)),
+          fit: BoxFit.contain,
+          width: double.infinity,
+          height: double.infinity,
+          gaplessPlayback: true,
+        );
+      } else if (!it.isLocal && it.url != null) {
+        content = CachedNetworkImage(
+          imageUrl: it.url!,
+          fit: BoxFit.contain,
+          width: double.infinity,
+          height: double.infinity,
+          placeholder: (_, __) =>
+              const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          errorWidget: (_, __, ___) => const Center(
+            child: Icon(Icons.broken_image, color: Colors.white54),
+          ),
+        );
+      } else {
+        content = const SizedBox.shrink();
+      }
     }
 
     return Stack(
@@ -2569,17 +2763,111 @@ class _StorySlideState extends State<_StorySlide> {
             left: 16,
             right: 16,
             bottom: 28,
-            child: Text(
-              it.caption!,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.55),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Text(
+                it.caption!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  height: 1.4,
+                  fontWeight: FontWeight.w500,
+                  shadows: [Shadow(blurRadius: 6, color: Colors.black38)],
+                ),
               ),
             ),
           ),
       ],
+    );
+  }
+}
+
+/// ======================= FOLLOW BUTTON =======================
+class _FollowButton extends StatefulWidget {
+  const _FollowButton({required this.authorId});
+  final String authorId;
+
+  @override
+  State<_FollowButton> createState() => _FollowButtonState();
+}
+
+class _FollowButtonState extends State<_FollowButton> {
+  bool _isFollowing = false;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkFollowing();
+  }
+
+  Future<void> _checkFollowing() async {
+    try {
+      final r = await apiGet('/follows/${widget.authorId}');
+      final data = expectJson(r);
+      if (!mounted) return;
+      setState(() {
+        _isFollowing = data['isFollowing'] == true;
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _toggle() async {
+    final prev = _isFollowing;
+    setState(() => _isFollowing = !prev);
+    try {
+      if (!prev) {
+        await apiPost('/follows/${widget.authorId}', {});
+      } else {
+        await apiDelete('/follows/${widget.authorId}');
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isFollowing = prev);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const SizedBox(width: 80, height: 30);
+
+    final following = _isFollowing;
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.grey.shade200,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: TextButton(
+          onPressed: _toggle,
+          style: TextButton.styleFrom(
+            foregroundColor: Colors.black87,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+          ),
+          child: Text(
+            following ? 'Following' : 'Follow',
+            style: const TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

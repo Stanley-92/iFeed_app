@@ -5,10 +5,9 @@ import 'package:colorful_iconify_flutter/icons/logos.dart';
 import 'package:iconify_flutter/iconify_flutter.dart';
 import 'package:iconify_flutter/icons/uil.dart';
 
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
+import 'services/auth_service.dart';
+import 'services/api_client.dart';
 
 import 'package:ifeed/profile.dart';
 import 'verify.dart';
@@ -20,34 +19,22 @@ class CreateScreen extends StatefulWidget {
 }
 
 class _CreateScreenState extends State<CreateScreen> {
-  //Helper
+  static const String _backendUrl = kBaseUrl;
 
-  // Backend base (Render)
-  static const String BACKEND_URL = "https://ifeed-backend.onrender.com";
-
-  // Controllers
   final _firstController = TextEditingController();
   final _lastController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  // DOB
   late String _day;
   late String _month;
   late String _year;
-
-  // Gender
   String _gender = 'Female';
-
-  // UI state
   bool _loading = false;
   String? _error;
 
-  // Firebase
-  final _auth = FirebaseAuth.instance;
-  final _db = FirebaseFirestore.instance;
+  final _svc = AuthService();
 
-  // Dropdown lists
   List<String> get _days =>
       List.generate(31, (i) => (i + 1).toString().padLeft(2, '0'));
   List<String> get _months =>
@@ -64,13 +51,6 @@ class _CreateScreenState extends State<CreateScreen> {
     _day = now.day.toString().padLeft(2, '0');
     _month = now.month.toString().padLeft(2, '0');
     _year = now.year.toString();
-  }
-
-  // --- URL helper
-  String _url(String path) {
-    final base = BACKEND_URL.replaceFirst(RegExp(r'/+$'), '');
-    final p = path.startsWith('/') ? path : '/$path';
-    return '$base$p';
   }
 
   InputDecoration _boxDecoration(String hint) => InputDecoration(
@@ -90,158 +70,57 @@ class _CreateScreenState extends State<CreateScreen> {
   Widget _dobBox({required Widget child, double width = 112}) =>
       SizedBox(width: width, height: 40, child: child);
 
-  /// Ensure Firebase user has a displayName
-  Future<void> _ensureDisplayName(User user) async {
-    final entered = [
-      _firstController.text.trim(),
-      _lastController.text.trim(),
-    ].where((s) => s.isNotEmpty).join(' ').trim();
-
-    if ((user.displayName == null || user.displayName!.trim().isEmpty) &&
-        entered.isNotEmpty) {
-      await user.updateDisplayName(entered);
-      await user.reload();
-    }
-  }
-
-  /// Upsert user profile into Firestore with stable createdAt (transaction)
-  Future<void> _upsertUserDoc(User user, {String? displayName}) async {
-    final usersRef = _db.collection('users').doc(user.uid);
-    final fallbackEnteredName = [
-      _firstController.text.trim(),
-      _lastController.text.trim(),
-    ].where((s) => s.isNotEmpty).join(' ').trim();
-
-    await _db.runTransaction((tx) async {
-      final snap = await tx.get(usersRef);
-      final base = {
-        'uid': user.uid,
-        'email': user.email,
-        'displayName': (displayName != null && displayName.isNotEmpty)
-            ? displayName
-            : (user.displayName?.trim().isNotEmpty == true
-                  ? user.displayName
-                  : fallbackEnteredName),
-        'photoURL': user.photoURL,
-        'dob': {'day': _day, 'month': _month, 'year': _year},
-        'gender': _gender,
-        'providerIds': user.providerData.map((p) => p.providerId).toList(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-
-      if (snap.exists) {
-        tx.update(usersRef, base);
-      } else {
-        tx.set(usersRef, {...base, 'createdAt': FieldValue.serverTimestamp()});
-      }
-    });
-  }
-
-  // === Send 6-digit OTP via backend; returns success
-  Future<bool> _sendOtpToEmail({
-    required String uid,
-    required String email,
-  }) async {
+  Future<bool> _sendOtpToEmail({required String email}) async {
     try {
-      final uri = Uri.parse(_url('/send-otp'));
+      final uri = Uri.parse('$_backendUrl/otp/send');
       final resp = await http
           .post(
             uri,
             headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'uid': uid, 'email': email}),
+            body: jsonEncode({'email': email}),
           )
           .timeout(const Duration(seconds: 20));
-
-      if (resp.statusCode == 200) {
-        debugPrint("OTP request sent for $email");
-        return true;
-      } else {
-        debugPrint(" send-otp failed [${resp.statusCode}]: ${resp.body}");
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to send code: ${resp.statusCode}')),
-          );
-        }
-        return false;
-      }
-    } catch (e) {
-      debugPrint("send-otp error: $e");
+      if (resp.statusCode == 200) return true;
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to send code: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send code: ${resp.statusCode}')),
+        );
+      }
+      return false;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Failed to send code: $e')));
       }
       return false;
     }
   }
 
-  // === Navigate to VerifyScreen; on success go to Profile
-  Future<void> _goToVerifyAndMaybeProfile({
-    required String uid,
-    required String email,
-  }) async {
+  Future<void> _goToVerify({required String uid, required String email}) async {
     if (!mounted) return;
-    final verified = await Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) =>
-            VerifyScreen(uid: uid, email: email, backendUrl: BACKEND_URL),
+            VerifyScreen(uid: uid, email: email, backendUrl: _backendUrl),
       ),
     );
-
-    if (verified == true && mounted) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const ProfileUserScreen()),
-      );
-    }
   }
 
-  // ---------------- Google Sign-In ----------------
   Future<void> _handleGoogle() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    setState(() { _loading = true; _error = null; });
     try {
-      final googleUser = await GoogleSignIn().signIn();
-      if (googleUser == null) {
-        setState(() => _loading = false);
-        return;
-      }
-      final auth = await googleUser.authentication;
-      final credential = GoogleAuthProvider.credential(
-        idToken: auth.idToken,
-        accessToken: auth.accessToken,
+      final user = await _svc.loginWithGoogle();
+      final userId = await getCurrentUserId();
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ProfileUserScreen(userId: userId ?? user['id'].toString()),
+        ),
       );
-
-      final cred = await _auth.signInWithCredential(credential);
-      final user = cred.user;
-
-      if (user != null) {
-        await _ensureDisplayName(user);
-        await user.reload();
-        final refreshed = _auth.currentUser!;
-
-        await _upsertUserDoc(refreshed);
-
-        final email = refreshed.email ?? _emailController.text.trim();
-
-        if (email.isEmpty) {
-          setState(() => _error = 'Could not determine your email.');
-          return;
-        }
-
-        // Save user completed, go directly to Profile
-        if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const ProfileUserScreen()),
-          );
-        }
-      }
-    } on FirebaseAuthException catch (e) {
-      setState(() => _error = e.message ?? e.code);
+    } on ApiException catch (e) {
+      setState(() => _error = e.message);
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
@@ -249,7 +128,6 @@ class _CreateScreenState extends State<CreateScreen> {
     }
   }
 
-  // ------------- Email + Password Sign Up -------------
   Future<void> _handleCreateEmail() async {
     final first = _firstController.text.trim();
     final last = _lastController.text.trim();
@@ -257,68 +135,35 @@ class _CreateScreenState extends State<CreateScreen> {
     final pass = _passwordController.text;
 
     if (email.isEmpty || pass.length < 6) {
-      setState(
-        () => _error = 'Please enter a valid email and password (6+ chars).',
-      );
+      setState(() => _error = 'Please enter a valid email and password (6+ chars).');
       return;
     }
 
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    setState(() { _loading = true; _error = null; });
 
     try {
-      final displayName = [
-        first,
-        last,
-      ].where((s) => s.isNotEmpty).join(' ').trim();
-
-      final cred = await _auth.createUserWithEmailAndPassword(
+      final displayName = [first, last].where((s) => s.isNotEmpty).join(' ').trim();
+      final user = await _svc.register(
         email: email,
         password: pass,
+        displayName: displayName.isNotEmpty ? displayName : null,
       );
-      final user = cred.user;
+      final userId = await getCurrentUserId();
 
-      if (user != null) {
-        if (displayName.isNotEmpty) await user.updateDisplayName(displayName);
-        await user.reload();
-        final refreshed = _auth.currentUser!;
+      await _sendOtpToEmail(email: email);
+      if (!mounted) return;
 
-        await _upsertUserDoc(refreshed, displayName: displayName);
+      await _goToVerify(uid: user['id'].toString(), email: email);
+      if (!mounted) return;
 
-        final ok = await _sendOtpToEmail(uid: refreshed.uid, email: email);
-
-        print('OTP RESULT = $ok');
-
-        // Always continue for now
-        if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const ProfileUserScreen()),
-          );
-        }
-
-        if (ok) {
-          await _goToVerifyAndMaybeProfile(uid: refreshed.uid, email: email);
-        }
-      }
-    } on FirebaseAuthException catch (e) {
-      String msg;
-      switch (e.code) {
-        case 'email-already-in-use':
-          msg = 'This email is already in use.';
-          break;
-        case 'invalid-email':
-          msg = 'Email address looks invalid.';
-          break;
-        case 'weak-password':
-          msg = 'Password is too weak.';
-          break;
-        default:
-          msg = e.message ?? e.code;
-      }
-      setState(() => _error = msg);
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ProfileUserScreen(userId: userId ?? user['id'].toString()),
+        ),
+      );
+    } on ApiException catch (e) {
+      setState(() => _error = e.message);
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {

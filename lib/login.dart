@@ -1,13 +1,12 @@
 // lib/login.dart
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:iconify_flutter/iconify_flutter.dart';
 import 'package:iconify_flutter/icons/uil.dart';
-
 import 'create.dart';
 import 'Mainfeed.dart';
+import 'forgort_password.dart';
+import 'services/auth_service.dart';
+import 'services/api_client.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -19,79 +18,31 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
-
-  final _auth = FirebaseAuth.instance;
-  final _db = FirebaseFirestore.instance;
+  final _svc = AuthService();
 
   bool _loading = false;
   String? _error;
 
-  // Optional: ensure a user doc exists after login
-  Future<void> _upsertUserDoc(User user) async {
-    await _db.collection('users').doc(user.uid).set({
-      'uid': user.uid,
-      'email': user.email,
-      'displayName': user.displayName,
-      'photoURL': user.photoURL,
-      'providerIds': user.providerData.map((p) => p.providerId).toList(),
-      'updatedAt': FieldValue.serverTimestamp(),
-      'createdAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-  }
-
-  //Loign Fail
   Future<void> _loginWithEmail() async {
     final email = _email.text.trim();
     final pass = _password.text;
 
     if (email.isEmpty || pass.isEmpty) {
-      if (mounted)
-        setState(() => _error = 'Please fill in both email and password.');
+      setState(() => _error = 'Please fill in both email and password.');
       return;
     }
 
-    if (mounted) {
-      setState(() {
-        _loading = true;
-        _error = null;
-      });
-    }
+    setState(() { _loading = true; _error = null; });
 
     try {
-      final cred = await _auth.signInWithEmailAndPassword(
-        email: email,
-        password: pass,
+      await _svc.login(email: email, password: pass);
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const MainfeedScreen()),
       );
-
-      final user = cred.user;
-      if (user != null) {
-        await _upsertUserDoc(user);
-        if (!mounted) return; // ensure still in tree before navigating
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const MainfeedScreen()),
-        );
-      }
-    } on FirebaseAuthException catch (e) {
-      String msg;
-      switch (e.code) {
-        case 'user-not-found':
-          msg = 'No account found for that email.';
-          break;
-        case 'wrong-password':
-          msg = 'Incorrect password.';
-          break;
-        case 'invalid-email':
-          msg = 'Invalid email format.';
-          break;
-        case 'user-disabled':
-          msg = 'This user has been disabled.';
-          break;
-        default:
-          msg = e.message ?? e.code;
-      }
-
-      if (mounted) setState(() => _error = msg);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -99,62 +50,19 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> loginWithGoogle() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _loginWithGoogle() async {
+    setState(() { _loading = true; _error = null; });
     try {
-      final googleUser = await GoogleSignIn().signIn();
-      if (googleUser == null) {
-        setState(() => _loading = false); // cancelled
-        return;
-      }
-      final auth = await googleUser.authentication;
-      final credential = GoogleAuthProvider.credential(
-        idToken: auth.idToken,
-        accessToken: auth.accessToken,
-      );
-
-      final cred = await _auth.signInWithCredential(credential);
-      final user = cred.user;
-      if (user != null) {
-        await _upsertUserDoc(user);
-        if (!mounted) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const MainfeedScreen()),
-        );
-      }
-    } on FirebaseAuthException catch (e) {
-      setState(() => _error = e.message ?? e.code);
-    } catch (e) {
-      setState(() => _error = e.toString());
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _forgotPassword() async {
-    final email = _email.text.trim();
-    if (email.isEmpty) {
-      setState(() => _error = 'Enter your email to reset your password.');
-      return;
-    }
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      await _auth.sendPasswordResetEmail(email: email);
+      await _svc.loginWithGoogle();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Password reset email sent. Check your inbox.'),
-        ),
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const MainfeedScreen()),
       );
-    } on FirebaseAuthException catch (e) {
-      setState(() => _error = e.message ?? e.code);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -173,16 +81,14 @@ class _LoginScreenState extends State<LoginScreen> {
       backgroundColor: const Color.fromARGB(255, 241, 243, 255),
       body: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(50),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 420),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.start,
               crossAxisAlignment: CrossAxisAlignment.center,
-
-              // Logo App
               children: [
-                const SizedBox(height: 80),
+                const SizedBox(height: 30),
 
                 Container(
                   padding: const EdgeInsets.all(15),
@@ -195,34 +101,25 @@ class _LoginScreenState extends State<LoginScreen> {
                       width: 2,
                     ),
                   ),
-                  child: const Iconify(
-                    Uil.comment,
-                    size: 38,
-                    color: Colors.white,
-                  ),
+                  child: const Iconify(Uil.comment, size: 38, color: Colors.white),
                 ),
 
-                const SizedBox(height: 48),
+                const SizedBox(height: 30),
                 TextField(
                   controller: _email,
                   keyboardType: TextInputType.emailAddress,
                   decoration: InputDecoration(
-                    labelText: 'Email/Phone',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
+                    labelText: 'Email',
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   ),
                 ),
                 const SizedBox(height: 16),
-
                 TextField(
                   controller: _password,
                   obscureText: true,
                   decoration: InputDecoration(
                     labelText: 'Password',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -232,9 +129,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   height: 48,
                   child: ElevatedButton(
                     onPressed: _loading ? null : _loginWithEmail,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue,
-                    ),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
                     child: Text(_loading ? 'Signing in…' : 'Login'),
                   ),
                 ),
@@ -242,7 +137,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 Align(
                   alignment: Alignment.center,
                   child: TextButton(
-                    onPressed: _loading ? null : _forgotPassword,
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
+                    ),
                     child: const Text('Forgot your Password?'),
                   ),
                 ),
@@ -250,6 +148,15 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 8),
                 const Divider(),
                 const SizedBox(height: 8),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: OutlinedButton(
+                    onPressed: _loading ? null : _loginWithGoogle,
+                    child: const Text('Continue with Google'),
+                  ),
+                ),
 
                 const SizedBox(height: 16),
 
@@ -261,12 +168,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         ? null
                         : () => Navigator.push(
                             context,
-                            MaterialPageRoute(
-                              builder: (_) => const CreateScreen(),
-                            ),
+                            MaterialPageRoute(builder: (_) => const CreateScreen()),
                           ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
+                      backgroundColor: const Color.fromARGB(255, 24, 90, 231),
                     ),
                     child: const Text('Create Account'),
                   ),

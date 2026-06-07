@@ -5,15 +5,15 @@ import 'package:iconify_flutter/iconify_flutter.dart';
 import 'package:iconify_flutter/icons/uil.dart';
 import 'package:iconify_flutter/icons/ph.dart';
 import 'package:video_player/video_player.dart';
-import 'package:ifeed/services/post_service.dart';
+import 'package:ifeed/services/comment_service.dart';
 
 /// ====== Avatar helpers (match feed behavior) ======
-const String defaultAvatarAsset = 'assets/images/default_avatar.png';
+const String defaultAvatarAsset = '';
 
-ImageProvider _avatarProvider(String avatar) {
-  if (avatar.isEmpty) return const AssetImage(defaultAvatarAsset);
+ImageProvider? _avatarProvider(String avatar) {
+  if (avatar.isEmpty) return null;
   if (avatar.startsWith('http')) return NetworkImage(avatar);
-  return AssetImage(avatar); // treat any non-http string as asset path
+  return null;
 }
 
 /// ───────── Public models you use from the feed ─────────
@@ -158,7 +158,7 @@ class _CommentsPageState extends State<CommentsPage> {
 
     if (text.isEmpty) return;
 
-    await PostService().addComment(postId: widget.postId, text: text);
+    await CommentService().addComment(postId: widget.postId, text: text);
 
     final node = _CommentNode(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -233,9 +233,10 @@ class _CommentsPageState extends State<CommentsPage> {
                       if (widget.showAvatars) ...[
                         CircleAvatar(
                           radius: 25,
-                          backgroundImage: _avatarProvider(authorAvatar),
-                          onBackgroundImageError: (_, __) {},
+                          foregroundImage: _avatarProvider(authorAvatar),
+                          onForegroundImageError: _avatarProvider(authorAvatar) != null ? (_, __) {} : null,
                           backgroundColor: Colors.grey.shade200,
+                          child: const Icon(Icons.person, size: 22, color: Colors.white),
                         ),
                         const SizedBox(width: 18),
                       ],
@@ -422,10 +423,10 @@ class _CommentsPageState extends State<CommentsPage> {
                   if (widget.showAvatars) ...[
                     CircleAvatar(
                       radius: 20,
-                      backgroundImage: _avatarProvider(
-                        widget.currentUserAvatar,
-                      ),
-                      onBackgroundImageError: (_, __) {},
+                      foregroundImage: _avatarProvider(widget.currentUserAvatar),
+                      onForegroundImageError: _avatarProvider(widget.currentUserAvatar) != null ? (_, __) {} : null,
+                      backgroundColor: Colors.grey.shade200,
+                      child: const Icon(Icons.person, size: 18, color: Colors.white),
                     ),
                     const SizedBox(width: 8),
                   ],
@@ -768,8 +769,10 @@ class _CommentTile extends StatelessWidget {
               if (showAvatars) ...[
                 CircleAvatar(
                   radius: 20,
-                  backgroundImage: _avatarProvider(comment.avatar),
-                  onBackgroundImageError: (_, __) {},
+                  foregroundImage: _avatarProvider(comment.avatar),
+                  onForegroundImageError: _avatarProvider(comment.avatar) != null ? (_, __) {} : null,
+                  backgroundColor: Colors.grey.shade200,
+                  child: const Icon(Icons.person, size: 18, color: Colors.white),
                 ),
                 const SizedBox(width: 10),
               ],

@@ -7,7 +7,7 @@ import 'package:iconify_flutter/icons/uil.dart';
 import 'package:iconify_flutter/icons/material_symbols.dart';
 
 class ProfileEditResult {
-  final String? avatarPath;     // local file path from gallery
+  final String? avatarPath; // local file path from gallery
   final String name;
   final String bio;
   final DateTime? birthDate;
@@ -56,7 +56,8 @@ class _EditProfilePageState extends State<EditProfilePage> {
     _nameCtrl = TextEditingController(text: widget.initialName);
     _bioCtrl = TextEditingController(text: widget.initialBio);
     _birthDate = widget.initialBirthDate;
-    if (widget.initialAvatarPath != null && widget.initialAvatarPath!.isNotEmpty) {
+    if (widget.initialAvatarPath != null &&
+        widget.initialAvatarPath!.isNotEmpty) {
       _pickedAvatar = File(widget.initialAvatarPath!);
     }
   }
@@ -69,7 +70,10 @@ class _EditProfilePageState extends State<EditProfilePage> {
   }
 
   Future<void> _pickAvatar() async {
-    final img = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+    final img = await _picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
     if (img != null) setState(() => _pickedAvatar = File(img.path));
   }
 
@@ -84,7 +88,9 @@ class _EditProfilePageState extends State<EditProfilePage> {
       lastDate: last,
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
-          colorScheme: Theme.of(ctx).colorScheme.copyWith(primary: const Color(0xFF3B5BFF)),
+          colorScheme: Theme.of(
+            ctx,
+          ).colorScheme.copyWith(primary: const Color(0xFF3B5BFF)),
         ),
         child: child!,
       ),
@@ -99,9 +105,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
   ImageProvider<Object> _avatarImage() {
     if (_pickedAvatar != null) return FileImage(_pickedAvatar!);
-    return const NetworkImage(
-      'https://images.unsplash.com/photo-1520975938430-b8e3c02e6f3a?q=80&w=200&auto=format&fit=crop',
-    );
+    return const AssetImage('assets/icons/icon.png');
   }
 
   void _submit() {
@@ -123,23 +127,23 @@ class _EditProfilePageState extends State<EditProfilePage> {
     final primary = const Color(0xFF3B5BFF);
     return Scaffold(
       backgroundColor: const Color(0xFFFAF7F6),
-  appBar: AppBar(
-  leading: IconButton(
-    icon: const Iconify(MaterialSymbols.arrow_back_ios),
-    onPressed: () => Navigator.pop(context),
-  ),
-  elevation: 0,
-  backgroundColor: Colors.transparent,
-  foregroundColor: Colors.black87,
-  title: const Text('Edit'),
-  centerTitle: false,
-  actions: const [
-    Padding(
-      padding: EdgeInsets.only(right: 16),
-     // child: Iconify(Uil.setting, size: 20),
-    )
-  ],
-),
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Iconify(MaterialSymbols.arrow_back_ios),
+          onPressed: () => Navigator.pop(context),
+        ),
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.black87,
+        title: const Text('Edit'),
+        centerTitle: false,
+        actions: const [
+          Padding(
+            padding: EdgeInsets.only(right: 16),
+            // child: Iconify(Uil.setting, size: 20),
+          ),
+        ],
+      ),
 
       body: Center(
         child: ConstrainedBox(
@@ -147,7 +151,9 @@ class _EditProfilePageState extends State<EditProfilePage> {
           child: Card(
             elevation: 0,
             margin: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
               child: Form(
@@ -158,21 +164,20 @@ class _EditProfilePageState extends State<EditProfilePage> {
                     const Text(
                       'Profile Photo added',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(height: 18),
 
-                 
-                 
-                 
-                 
                     // Avatar + camera badge
                     Center(
                       child: Stack(
                         alignment: Alignment.bottomRight,
                         children: [
                           CircleAvatar(
-                            radius:58,
+                            radius: 58,
                             backgroundColor: Colors.grey.shade200,
                             backgroundImage: _avatarImage(),
                           ),
@@ -183,10 +188,17 @@ class _EditProfilePageState extends State<EditProfilePage> {
                               decoration: BoxDecoration(
                                 color: primary,
                                 shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 2),
+                                border: Border.all(
+                                  color: Colors.white,
+                                  width: 2,
+                                ),
                               ),
                               padding: const EdgeInsets.all(6),
-                              child: const Iconify(MaterialSymbols.android_camera_outline, color: Colors.white, size: 18),
+                              child: const Iconify(
+                                MaterialSymbols.android_camera_outline,
+                                color: Colors.white,
+                                size: 18,
+                              ),
                             ),
                           ),
                         ],
@@ -195,25 +207,29 @@ class _EditProfilePageState extends State<EditProfilePage> {
                     const SizedBox(height: 22),
 
                     // Name
-                    _FormLabel('Name', fontSize: 18 ,color: Colors.black,),
+                    _FormLabel('Name', fontSize: 18, color: Colors.black),
                     TextFormField(
                       controller: _nameCtrl,
                       decoration: _inputDecoration(hint: 'Your name'),
-                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Name required' : null,
+                      validator: (v) => (v == null || v.trim().isEmpty)
+                          ? 'Name required'
+                          : null,
                     ),
                     const SizedBox(height: 14),
 
                     // Bio
-                    _FormLabel('Bio', fontSize: 18 ,color: Colors.black,),
+                    _FormLabel('Bio', fontSize: 18, color: Colors.black),
                     TextFormField(
                       controller: _bioCtrl,
                       maxLines: 3,
-                      decoration: _inputDecoration(hint: 'Tell people about you'),
+                      decoration: _inputDecoration(
+                        hint: 'Tell people about you',
+                      ),
                     ),
                     const SizedBox(height: 14),
 
                     // Birth date
-                    _FormLabel('Birth date', fontSize: 18 ,color: Colors.black,),
+                    _FormLabel('Birth date', fontSize: 18, color: Colors.black),
                     InkWell(
                       onTap: _pickBirthDate,
                       borderRadius: BorderRadius.circular(12),
@@ -225,12 +241,18 @@ class _EditProfilePageState extends State<EditProfilePage> {
                               child: Text(
                                 _birthDateLabel,
                                 style: TextStyle(
-                                  color: _birthDate == null ? Colors.grey : const Color.fromARGB(221, 0, 0, 0),
+                                  color: _birthDate == null
+                                      ? Colors.grey
+                                      : const Color.fromARGB(221, 0, 0, 0),
                                   fontSize: 15,
                                 ),
                               ),
                             ),
-                            const Iconify(Uil.angle_down, size: 28, color: Color.fromARGB(255, 12, 12, 12)),
+                            const Iconify(
+                              Uil.angle_down,
+                              size: 28,
+                              color: Color.fromARGB(255, 12, 12, 12),
+                            ),
                           ],
                         ),
                       ),
@@ -238,25 +260,40 @@ class _EditProfilePageState extends State<EditProfilePage> {
                     const SizedBox(height: 14),
 
                     // Show verify badge (static CTA)
-                    _FormLabel('Show verify badge', fontSize: 18 ,color: Colors.black,),
+                    _FormLabel(
+                      'Show verify badge',
+                      fontSize: 18,
+                      color: Colors.black,
+                    ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 15,
+                      ),
                       //decoration: _boxDecoration(),
                       child: Row(
                         children: [
                           const SizedBox(width: 18),
                           const Expanded(
                             child: Text(
-                              
                               'Open verify badge your profile will show up everywhere\n help your audience feel trust your real account.',
-                              style: TextStyle(fontSize: 13, color: Colors.black87, height: 2),
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.black87,
+                                height: 2,
+                              ),
                             ),
                           ),
-                          const Iconify(MaterialSymbols.verified_outline, size: 28, color: Color(0xFF3B5BFF)),
+                          const Iconify(
+                            MaterialSymbols.verified_outline,
+                            size: 28,
+                            color: Color(0xFF3B5BFF),
+                          ),
                           TextButton(
-                            onPressed: () {/* navigate to subscribe */},
+                            onPressed: () {
+                              /* navigate to subscribe */
+                            },
                             child: const Text('Subscribe'),
-                            
                           ),
                         ],
                       ),
@@ -264,22 +301,30 @@ class _EditProfilePageState extends State<EditProfilePage> {
                     const SizedBox(height: 12),
 
                     // Share to a post
-                   _FormLabel('Share this photo to a post', fontSize: 18 ,color: Colors.black,),
+                    _FormLabel(
+                      'Share this photo to a post',
+                      fontSize: 18,
+                      color: Colors.black,
+                    ),
                     Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
                       decoration: _boxDecoration(),
-                      
+
                       child: Row(
                         children: [
                           const Expanded(
                             child: Text(
-                            'Make this photo your first post so people can like and comment on it.',
-                            style: TextStyle(fontSize: 13.5),
+                              'Make this photo your first post so people can like and comment on it.',
+                              style: TextStyle(fontSize: 13.5),
                             ),
                           ),
                           Switch.adaptive(
                             value: _shareAsFirstPost,
-                            onChanged: (v) => setState(() => _shareAsFirstPost = v),
+                            onChanged: (v) =>
+                                setState(() => _shareAsFirstPost = v),
                             activeColor: Colors.white,
                             activeTrackColor: primary,
                           ),
@@ -294,10 +339,15 @@ class _EditProfilePageState extends State<EditProfilePage> {
                       child: FilledButton(
                         style: FilledButton.styleFrom(
                           backgroundColor: primary,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18),
+                          ),
                         ),
                         onPressed: _submit,
-                        child: const Text('Next', style: TextStyle(fontWeight: FontWeight.w600)),
+                        child: const Text(
+                          'Next',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -321,29 +371,29 @@ class _EditProfilePageState extends State<EditProfilePage> {
   }
 
   InputDecoration _inputDecoration({String? hint}) => InputDecoration(
-        hintText: hint,
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey.shade300),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey.shade300),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF3B5BFF)),
-        ),
-      );
+    hintText: hint,
+    filled: true,
+    fillColor: Colors.white,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide(color: Colors.grey.shade300),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide(color: Colors.grey.shade300),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Color(0xFF3B5BFF)),
+    ),
+  );
 
   BoxDecoration _boxDecoration() => BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
-      );
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(12),
+    border: Border.all(color: Colors.grey.shade300),
+  );
 }
 
 class _FormLabel extends StatelessWidget {

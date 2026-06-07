@@ -5,9 +5,7 @@ import 'package:iconify_flutter/iconify_flutter.dart';
 import 'package:iconify_flutter/icons/uil.dart';
 import 'package:iconify_flutter/icons/ph.dart';
 import 'login.dart'; // adjust path if needed
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import 'services/auth_service.dart';
 
 import 'package:iconify_flutter/icons/material_symbols.dart';
 import 'package:colorful_iconify_flutter/icons/logos.dart';
@@ -244,13 +242,7 @@ class _SttingPageState extends State<SttingPage> {
                           fontWeight: FontWeight.w600,
                         ),
                         onTap: () async {
-                          //  First, sign out of Firebase
-                          await FirebaseAuth.instance.signOut();
-
-                          // (Optional) If user logged in with Google, sign out there too
-                          try {
-                            await GoogleSignIn().signOut();
-                          } catch (_) {}
+                          await AuthService().logout();
 
                           if (!context.mounted) return;
 

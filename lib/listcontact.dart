@@ -37,7 +37,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     20,
     (i) => Contact(
       username: 'sinayun_syn #$i',
-      avatarUrl: 'https://i.pravatar.cc/150?img=${(i % 70) + 1}',
+      avatarUrl: '',
       lastActiveAgo: Duration(minutes: (i + 1) * 3),
     ),
   );
@@ -153,8 +153,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
                           // Avatar (normal size)
                           CircleAvatar(
                             radius: 22,
-                            backgroundImage: NetworkImage(c.avatarUrl),
-                            onBackgroundImageError: (_, __) {},
+                            backgroundColor: Colors.grey.shade300,
+                            foregroundImage: c.avatarUrl.isNotEmpty ? NetworkImage(c.avatarUrl) : null,
+                            onForegroundImageError: c.avatarUrl.isNotEmpty ? (_, __) {} : null,
+                            child: const Icon(Icons.person, color: Colors.white),
                           ),
                           const SizedBox(width: 12),
                           // Name + (you can add last message later)
