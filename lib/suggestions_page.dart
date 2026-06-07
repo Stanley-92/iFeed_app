@@ -18,19 +18,19 @@ class _FollowSuggestionsPageState extends State<FollowSuggestionsPage> {
       bio: 'Makeup Artist and Blogger @huda.',
       followers: 700,
       avatarUrl:
-          'https://i.pravatar.cc/100?img=5', // swap with your asset if you want
+          '',
     ),
     _Suggestion(
       username: 'sinayun_xyn',
       bio: 'Makeup Artist and Blogger @huda.',
       followers: 700,
-      avatarUrl: 'https://i.pravatar.cc/100?img=15',
+      avatarUrl: '',
     ),
     _Suggestion(
       username: 'sinayun_xyn',
       bio: 'Makeup Artist and Blogger @huda.',
       followers: 700,
-      avatarUrl: 'https://i.pravatar.cc/100?img=25',
+      avatarUrl: '',
     ),
   ];
 
@@ -217,9 +217,9 @@ class _Avatar extends StatelessWidget {
     return CircleAvatar(
       radius: 25,
       backgroundColor: const Color(0xFFE9ECFF),
-      backgroundImage: NetworkImage(url),
-      onBackgroundImageError: (_, __) {},
-      child: url.isEmpty ? const Icon(Icons.person) : null,
+      foregroundImage: url.isNotEmpty ? NetworkImage(url) : null,
+      onForegroundImageError: url.isNotEmpty ? (_, __) {} : null,
+      child: const Icon(Icons.person),
     );
   }
 }
