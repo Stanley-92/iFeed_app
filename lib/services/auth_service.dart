@@ -1,11 +1,11 @@
-import 'dart:convert';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'api_client.dart';
 
 class AuthService {
   final _googleSignIn = GoogleSignIn(
     scopes: ['email', 'profile'],
-    serverClientId: '648857401957-ls155kc1i0uqqkc2jofkmklasklgomd5.apps.googleusercontent.com',
+    serverClientId:
+        '648857401957-ls155kc1i0uqqkc2jofkmklasklgomd5.apps.googleusercontent.com',
   );
 
   // Email + password login
@@ -13,7 +13,10 @@ class AuthService {
     required String email,
     required String password,
   }) async {
-    final r = await apiPost('/auth/login', {'email': email, 'password': password});
+    final r = await apiPost('/auth/login', {
+      'email': email,
+      'password': password,
+    });
     final body = expectJson(r);
     await saveTokens(
       accessToken: body['accessToken'] as String,
