@@ -17,6 +17,7 @@ import 'package:iconify_flutter/icons/ri.dart';
 import 'services/api_client.dart';
 import 'services/post_service.dart';
 import 'services/like_service.dart';
+import 'services/repost_service.dart';
 import 'services/user_profile_service.dart';
 import 'profile.dart';
 
@@ -35,9 +36,6 @@ import 'listcontact.dart' as lc;
 Offset? _tapPosition;
 
 void main() => runApp(const MaterialApp(home: MainfeedScreen()));
-
-
-
 
 ///======================= STORY MODELS (multi-item) =======================
 class Story {
@@ -750,7 +748,34 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
 
                     onShare: () =>
                         setState(() => post.isShared = !post.isShared),
-                    onRepost: () => setState(() => post.shareCount++),
+                    onRepost: () async {
+                      final wasReposted = post.isReposted;
+                      final messenger = ScaffoldMessenger.of(context);
+                      setState(() {
+                        post.isReposted = !wasReposted;
+                        wasReposted ? post.shareCount-- : post.shareCount++;
+                      });
+                      try {
+                        final count = wasReposted
+                            ? await RepostService().undoRepost(post.id)
+                            : await RepostService().repost(post.id);
+                        if (mounted) setState(() => post.shareCount = count);
+                      } catch (e) {
+                        debugPrint('Repost error: $e');
+                        if (mounted) {
+                          setState(() {
+                            post.isReposted = wasReposted;
+                            wasReposted ? post.shareCount++ : post.shareCount--;
+                          });
+                        }
+                        messenger.showSnackBar(
+                          SnackBar(
+                            content: Text('Repost failed: $e'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    },
                     formatCount: _formatCount,
                     reels: _reels,
                     currentUserName: _currentUserName,
@@ -1208,7 +1233,7 @@ class _PostCard extends StatelessWidget {
   final VoidCallback onOpenComments;
   final VoidCallback onLike;
   final VoidCallback onShare;
-  final VoidCallback onRepost;
+  final VoidCallback onRepost; // async tap handled by caller
   final String Function(int) formatCount;
   final List<ReelItem> reels;
   final String currentUserName;
@@ -1380,7 +1405,13 @@ class _PostCard extends StatelessWidget {
                     ),
                   ),
                 IconButton(
-                  icon: const Iconify(Ph.shuffle_fill, size: 24),
+                  icon: Iconify(
+                    Ph.shuffle_fill,
+                    size: 24,
+                    color: post.isReposted
+                        ? const Color(0xff16a34a)
+                        : Colors.black54,
+                  ),
                   onPressed: onRepost,
                 ),
                 if (post.shareCount > 0)
@@ -2425,6 +2456,7 @@ class _Post {
   int shareCount; // reposts
   bool isLiked;
   bool isShared;
+  bool isReposted;
 
   List<reply.Comment> comments;
 
@@ -2442,6 +2474,7 @@ class _Post {
     this.shareCount = 0,
     this.isLiked = false,
     this.isShared = false,
+    this.isReposted = false,
     List<reply.Comment>? comments,
   }) : comments = comments ?? <reply.Comment>[];
 }
