@@ -1,7 +1,9 @@
 // mainfeed.dart
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:iconify_flutter/iconify_flutter.dart';
 import 'package:iconify_flutter/icons/mdi.dart';
 import 'package:iconify_flutter/icons/ph.dart';
@@ -33,6 +35,9 @@ import 'listcontact.dart' as lc;
 Offset? _tapPosition;
 
 void main() => runApp(const MaterialApp(home: MainfeedScreen()));
+
+
+
 
 ///======================= STORY MODELS (multi-item) =======================
 class Story {
@@ -136,7 +141,7 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
 
   Future<void> loadPosts() async {
     try {
-      final r = await apiGet('/posts');
+      final r = await apiGet('/posts?feed=$_feedTab');
       final list = expectJsonList(r);
       final posts = list.map((raw) {
         final data = raw as Map<String, dynamic>;
@@ -295,32 +300,49 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
           value: 'for_you',
           child: Row(
             children: [
-              const Expanded(child: Text('For you')),
+              Expanded(
+                child: Text(
+                  'For you',
+                  style: TextStyle(
+                    fontWeight: _feedTab == 'for_you'
+                        ? FontWeight.w700
+                        : FontWeight.normal,
+                  ),
+                ),
+              ),
               if (_feedTab == 'for_you')
-                const Iconify(Ph.heart_fill, size: 18, color: Colors.red),
+                const Iconify(Ph.check_bold, size: 18, color: Colors.black87),
             ],
           ),
         ),
-
         const PopupMenuDivider(),
         PopupMenuItem(
           value: 'following',
           child: Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Following',
-                  style: TextStyle(fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    fontWeight: _feedTab == 'following'
+                        ? FontWeight.w700
+                        : FontWeight.normal,
+                  ),
                 ),
               ),
-              if (_feedTab == 'following') const Iconify(Ph.check, size: 18),
+              if (_feedTab == 'following')
+                const Iconify(Ph.check_bold, size: 18, color: Colors.black87),
             ],
           ),
         ),
       ],
     ).then((value) {
-      if (value == null) return;
-      setState(() => _feedTab = value);
+      if (value == null || value == _feedTab) return;
+      setState(() {
+        _feedTab = value;
+        _feedPosts.clear();
+      });
+      loadPosts();
     });
   }
 
@@ -1129,6 +1151,56 @@ class _CommentsPreview extends StatelessWidget {
   }
 }
 
+/// ------------------------- Caption with tappable links -------------------------
+class CaptionText extends StatelessWidget {
+  final String text;
+  const CaptionText({super.key, required this.text});
+
+  static final _urlRegex = RegExp(r'https?://[^\s]+', caseSensitive: false);
+
+  @override
+  Widget build(BuildContext context) {
+    final spans = <InlineSpan>[];
+    int last = 0;
+    for (final match in _urlRegex.allMatches(text)) {
+      if (match.start > last) {
+        spans.add(TextSpan(text: text.substring(last, match.start)));
+      }
+      final url = match.group(0)!;
+      spans.add(
+        TextSpan(
+          text: url,
+          style: const TextStyle(
+            color: Colors.blue,
+            decoration: TextDecoration.underline,
+          ),
+          recognizer: TapGestureRecognizer()
+            ..onTap = () async {
+              final uri = Uri.tryParse(url);
+              if (uri != null) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+            },
+        ),
+      );
+      last = match.end;
+    }
+    if (last < text.length) {
+      spans.add(TextSpan(text: text.substring(last)));
+    }
+    return RichText(
+      text: TextSpan(
+        style: const TextStyle(
+          fontSize: 15,
+          color: Colors.black87,
+          height: 1.35,
+        ),
+        children: spans,
+      ),
+    );
+  }
+}
+
 /// ------------------------- Post Card -------------------------
 class _PostCard extends StatelessWidget {
   final _Post post;
@@ -1259,14 +1331,7 @@ class _PostCard extends StatelessWidget {
           if (post.caption.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(100, 0, 12, 18),
-              child: Text(
-                post.caption,
-                style: const TextStyle(
-                  fontSize: 15,
-                  color: Colors.black87,
-                  height: 1.35,
-                ),
-              ),
+              child: CaptionText(text: post.caption),
             ),
 
           // Media
