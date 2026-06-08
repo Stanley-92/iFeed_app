@@ -23,6 +23,8 @@ import 'edit_page.dart' show EditProfilePage, ProfileEditResult;
 import 'post_modal.dart' as model; // Post, PostMedia, MediaType
 import 'suggestions_page.dart';
 import 'reel_page.dart';
+import 'package:flutter/gestures.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'mainfeed.dart' show MainfeedScreen, UploadPostPage;
 
 // Leave empty string for now; we won't create NetworkImage('') with it.
@@ -66,6 +68,8 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
 
   Future<void> _fetchUserReplies() async {
     if (mounted) setState(() => _loadingReplies = true);
+
+    // Show cached replies immediately
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString('profile_replies_${widget.userId}');
@@ -74,13 +78,31 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
         final cached = list
             .map((d) => _UserReply.fromMap(d as Map<String, dynamic>))
             .toList();
-        if (mounted) {
-          setState(() => _replies..clear()..addAll(cached));
-        }
+        if (mounted) setState(() => _replies..clear()..addAll(cached));
       }
     } catch (e) {
-      debugPrint('loadReplies error: $e');
-    } finally {
+      debugPrint('loadReplies cache error: $e');
+    }
+
+    // Then fetch from API (only for own profile)
+    if (_currentUserId == null || _currentUserId != widget.userId) {
+      if (mounted) setState(() => _loadingReplies = false);
+      return;
+    }
+    try {
+      final r = await apiGet('/users/me/replies');
+      final list = expectJsonList(r);
+      final apiReplies = list
+          .map((d) => _UserReply.fromMap(d as Map<String, dynamic>))
+          .toList();
+      if (mounted) {
+        setState(() {
+          _replies..clear()..addAll(apiReplies);
+          _loadingReplies = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('fetchUserReplies error: $e');
       if (mounted) setState(() => _loadingReplies = false);
     }
   }
@@ -339,7 +361,12 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
                   content = ListView.separated(
                     padding: const EdgeInsets.only(bottom: 24),
                     itemCount: _replies.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, __) => const Divider(
+                      height: 1,
+                      thickness: 0.5,
+                      indent: 58,
+                      color: Color(0xFFEEEEEE),
+                    ),
                     itemBuilder: (_, i) => _ReplyCard(reply: _replies[i]),
                   );
                 }
@@ -743,14 +770,7 @@ class ProfilePostCardState extends State<ProfilePostCard> {
           if (post.caption.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(100, 0, 12, 18),
-              child: Text(
-                post.caption,
-                style: const TextStyle(
-                  fontSize: 15,
-                  color: Colors.black87,
-                  height: 1.35,
-                ),
-              ),
+              child: _CaptionText(text: post.caption),
             ),
 
           if (post.media.isNotEmpty) _ProfilePostMedia(items: post.media),
@@ -1036,6 +1056,52 @@ class _CoverVideoState extends State<_CoverVideo> {
   }
 }
 
+// ======================= Caption with tappable links =======================
+class _CaptionText extends StatelessWidget {
+  final String text;
+  const _CaptionText({required this.text});
+
+  static final _urlRegex = RegExp(r'https?://[^\s]+', caseSensitive: false);
+
+  @override
+  Widget build(BuildContext context) {
+    final spans = <InlineSpan>[];
+    int last = 0;
+    for (final match in _urlRegex.allMatches(text)) {
+      if (match.start > last) {
+        spans.add(TextSpan(text: text.substring(last, match.start)));
+      }
+      final url = match.group(0)!;
+      spans.add(
+        TextSpan(
+          text: url,
+          style: const TextStyle(
+            color: Colors.blue,
+            decoration: TextDecoration.underline,
+          ),
+          recognizer: TapGestureRecognizer()
+            ..onTap = () async {
+              final uri = Uri.tryParse(url);
+              if (uri != null) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+            },
+        ),
+      );
+      last = match.end;
+    }
+    if (last < text.length) {
+      spans.add(TextSpan(text: text.substring(last)));
+    }
+    return RichText(
+      text: TextSpan(
+        style: const TextStyle(fontSize: 15, color: Colors.black87, height: 1.35),
+        children: spans,
+      ),
+    );
+  }
+}
+
 // ======================= Bar icon =======================
 class _BarIcon extends StatelessWidget {
   final String icon;
@@ -1179,18 +1245,24 @@ class _EmptyState extends StatelessWidget {
 // ======================= User Reply model =======================
 class _UserReply {
   final String id;
+  final String userId;           // reply author's user ID (for navigation)
   final String postId;
-  final String postAuthorName;
+  final String postAuthorName;   // person whose post was replied to
   final String postAuthorAvatar;
+  final String userName;         // the person who wrote this reply
+  final String userAvatar;
   final String text;
   final String time;
   final int likeCount;
 
   const _UserReply({
     required this.id,
+    required this.userId,
     required this.postId,
     required this.postAuthorName,
     required this.postAuthorAvatar,
+    required this.userName,
+    required this.userAvatar,
     required this.text,
     required this.time,
     this.likeCount = 0,
@@ -1198,9 +1270,12 @@ class _UserReply {
 
   factory _UserReply.fromMap(Map<String, dynamic> d) => _UserReply(
         id: (d['_id'] ?? d['id'] ?? '').toString(),
+        userId: (d['userId'] ?? '').toString(),
         postId: (d['postId'] ?? '').toString(),
         postAuthorName: (d['postAuthorName'] ?? d['replyTo'] ?? 'someone').toString(),
         postAuthorAvatar: (d['postAuthorAvatar'] ?? '').toString(),
+        userName: (d['userName'] ?? d['displayName'] ?? '').toString(),
+        userAvatar: (d['userAvatar'] ?? d['photoURL'] ?? '').toString(),
         text: (d['text'] ?? d['content'] ?? '').toString(),
         time: (d['createdAt'] ?? d['time'] ?? 'just now').toString(),
         likeCount: (d['likeCount'] as num?)?.toInt() ?? 0,
@@ -1208,9 +1283,12 @@ class _UserReply {
 
   Map<String, dynamic> toMap() => {
         '_id': id,
+        'userId': userId,
         'postId': postId,
         'postAuthorName': postAuthorName,
         'postAuthorAvatar': postAuthorAvatar,
+        'userName': userName,
+        'userAvatar': userAvatar,
         'text': text,
         'time': time,
         'likeCount': likeCount,
@@ -1228,83 +1306,93 @@ class _ReplyCard extends StatelessWidget {
     return null;
   }
 
+  void _goToProfile(BuildContext context, String userId) {
+    if (userId.isEmpty) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ProfileUserScreen(userId: userId)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final displayName = reply.userName.isNotEmpty ? reply.userName : reply.postAuthorName;
+    final avatarUrl   = reply.userAvatar.isNotEmpty ? reply.userAvatar : reply.postAuthorAvatar;
+
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(38, 12, 16, 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(
-            radius: 20,
-            backgroundImage: _avatarProvider(reply.postAuthorAvatar),
-            backgroundColor: const Color(0xFFE5E7EB),
-            child: reply.postAuthorAvatar.isEmpty
-                ? Text(
-                    reply.postAuthorName.isNotEmpty
-                        ? reply.postAuthorName[0].toUpperCase()
-                        : '?',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.black54,
-                    ),
-                  )
-                : null,
+          // Tappable avatar
+          GestureDetector(
+            onTap: () => _goToProfile(context, reply.userId),
+            child: CircleAvatar(
+              radius: 21,
+              backgroundImage: _avatarProvider(avatarUrl),
+              backgroundColor: const Color(0xFFE5E7EB),
+              child: avatarUrl.isEmpty
+                  ? Text(
+                      displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.black54,
+                      ),
+                    )
+                  : null,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // "Replying to" header
-                Row(
-                  children: [
-                    Text(
-                      reply.postAuthorName,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      reply.time,
-                      style: const TextStyle(
-                        color: Colors.black45,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Replying to @${reply.postAuthorName}',
-                  style: const TextStyle(
-                    color: Color(0xff3d5afe),
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                // Reply text
-                Text(
-                  reply.text,
-                  style: const TextStyle(fontSize: 15, height: 1.35),
-                ),
-                const SizedBox(height: 8),
-                // Like count
-                if (reply.likeCount > 0)
-                  Row(
+                // Tappable name + time row
+                GestureDetector(
+                  onTap: () => _goToProfile(context, reply.userId),
+                  child: Row(
                     children: [
-                      const Icon(Icons.favorite_border, size: 16, color: Colors.black45),
-                      const SizedBox(width: 4),
                       Text(
-                        '${reply.likeCount}',
-                        style: const TextStyle(fontSize: 13, color: Colors.black45),
+                        displayName,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        reply.time,
+                        style: const TextStyle(color: Colors.black45, fontSize: 12),
                       ),
                     ],
                   ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Replying to @${reply.postAuthorName}',
+                  style: const TextStyle(color: Color(0xff3d5afe), fontSize: 12),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  reply.text,
+                  style: const TextStyle(fontSize: 15, height: 1.4, color: Colors.black87),
+                ),
+                if (reply.likeCount > 0) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.favorite_border, size: 16, color: Colors.black38),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${reply.likeCount}',
+                        style: const TextStyle(fontSize: 12, color: Colors.black38),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
