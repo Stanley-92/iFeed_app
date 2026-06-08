@@ -197,9 +197,12 @@ class _CommentsPageState extends State<CommentsPage> {
       final list = existing != null ? (jsonDecode(existing) as List) : [];
       list.insert(0, {
         '_id': DateTime.now().millisecondsSinceEpoch.toString(),
+        'userId': userId,
         'postId': widget.postId,
         'postAuthorName': widget.postAuthorName,
         'postAuthorAvatar': widget.postAuthorAvatar,
+        'userName': widget.currentUserName,
+        'userAvatar': widget.currentUserAvatar,
         'text': text,
         'time': 'just now',
         'likeCount': 0,
