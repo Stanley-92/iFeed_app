@@ -10,9 +10,9 @@ const String _baseUrl = kBaseUrl;
 
 final _storage = const FlutterSecureStorage();
 
-const _kAccess  = 'access_token';
+const _kAccess = 'access_token';
 const _kRefresh = 'refresh_token';
-const _kUserId  = 'user_id';
+const _kUserId = 'user_id';
 
 // ── Token helpers ─────────────────────────────────────────────────────────
 
@@ -22,9 +22,9 @@ Future<void> saveTokens({
   required String userId,
 }) async {
   await Future.wait([
-    _storage.write(key: _kAccess,  value: accessToken),
+    _storage.write(key: _kAccess, value: accessToken),
     _storage.write(key: _kRefresh, value: refreshToken),
-    _storage.write(key: _kUserId,  value: userId),
+    _storage.write(key: _kUserId, value: userId),
   ]);
 }
 
@@ -36,7 +36,7 @@ Future<void> clearTokens() async {
   ]);
 }
 
-Future<String?> getAccessToken()  => _storage.read(key: _kAccess);
+Future<String?> getAccessToken() => _storage.read(key: _kAccess);
 Future<String?> getRefreshToken() => _storage.read(key: _kRefresh);
 Future<String?> getCurrentUserId() => _storage.read(key: _kUserId);
 
@@ -126,7 +126,7 @@ Future<http.Response> apiDelete(String path) async {
 
 /// Multipart upload (for posts, stories, profile photos).
 Future<http.Response> apiMultipart({
-  required String method,  // 'POST' or 'PUT'
+  required String method, // 'POST' or 'PUT'
   required String path,
   Map<String, String> fields = const {},
   List<({String field, File file})> files = const [],
@@ -154,12 +154,16 @@ Future<http.Response> apiMultipart({
 Map<String, dynamic> expectJson(http.Response r) {
   if (r.body.isEmpty) {
     if (r.statusCode >= 400) {
-      throw ApiException(r.statusCode, 'Request failed (status ${r.statusCode}, empty response)');
+      throw ApiException(
+        r.statusCode,
+        'Request failed (status ${r.statusCode}, empty response)',
+      );
     }
     return {};
   }
   final body = jsonDecode(r.body) as Map<String, dynamic>;
-  if (r.statusCode >= 400) throw ApiException(r.statusCode, body['error'] ?? 'Request failed');
+  if (r.statusCode >= 400)
+    throw ApiException(r.statusCode, body['error'] ?? 'Request failed');
   return body;
 }
 
@@ -178,4 +182,3 @@ class ApiException implements Exception {
   @override
   String toString() => 'ApiException($statusCode): $message';
 }
-

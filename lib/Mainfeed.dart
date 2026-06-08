@@ -1465,12 +1465,16 @@ void _showPostMenu(
   final isOwner = post.authorId == currentUserId;
   showModalBottomSheet(
     context: context,
-    backgroundColor: Colors.transparent,
+    backgroundColor: Colors.white,
     isScrollControlled: false,
+    showDragHandle: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
     builder: (_) {
       return SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1482,7 +1486,7 @@ void _showPostMenu(
                     onTap: () => Navigator.pop(context),
                   ),
                   _MenuItem(
-                    iconify: MaterialSymbols.mark_email_unread_outline,
+                    iconify: Ph.article_bold,
                     label: 'Detail',
                     onTap: () => Navigator.pop(context),
                   ),
@@ -1501,13 +1505,19 @@ void _showPostMenu(
                 children: [
                   if (!isOwner) ...[
                     _MenuItem(
-                      iconify: Ph.bell,
+                      iconify: Ph.bell_bold,
                       label: 'Mute',
                       onTap: () => Navigator.pop(context),
                     ),
                     _MenuItem(
                       iconify: Ph.prohibit_inset_bold,
                       label: 'Block',
+                      danger: true,
+                      onTap: () => Navigator.pop(context),
+                    ),
+                    _MenuItem(
+                      iconify: Ph.flag_bold,
+                      label: 'Report',
                       danger: true,
                       onTap: () => Navigator.pop(context),
                     ),

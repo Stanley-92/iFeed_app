@@ -809,21 +809,58 @@ class ProfilePostCardState extends State<ProfilePostCard> {
                     showModalBottomSheet(
                       context: context,
                       backgroundColor: Colors.white,
+                      showDragHandle: true,
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(20),
+                        ),
+                      ),
                       builder: (_) => SafeArea(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            ListTile(
-                              leading: const Iconify(Uil.file_download),
-                              title: const Text('Save'),
-                              onTap: () => Navigator.pop(context),
-                            ),
-                            ListTile(
-                              leading: const Iconify(Ph.link),
-                              title: const Text('Copy link'),
-                              onTap: () => Navigator.pop(context),
-                            ),
-                          ],
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _ProfileMenuSection(children: [
+                                _ProfileMenuItem(
+                                  iconify: MaterialSymbols.download_rounded,
+                                  label: 'Save',
+                                  onTap: () => Navigator.pop(context),
+                                ),
+                                _ProfileMenuItem(
+                                  iconify: Ph.article_bold,
+                                  label: 'Detail',
+                                  onTap: () => Navigator.pop(context),
+                                ),
+                              ]),
+                              _ProfileMenuSection(children: [
+                                _ProfileMenuItem(
+                                  iconify: Ph.link_bold,
+                                  label: 'Copy link',
+                                  onTap: () => Navigator.pop(context),
+                                ),
+                              ]),
+                              _ProfileMenuSection(children: [
+                                _ProfileMenuItem(
+                                  iconify: Ph.bell_bold,
+                                  label: 'Mute',
+                                  onTap: () => Navigator.pop(context),
+                                ),
+                                _ProfileMenuItem(
+                                  iconify: Ph.prohibit_inset_bold,
+                                  label: 'Block',
+                                  danger: true,
+                                  onTap: () => Navigator.pop(context),
+                                ),
+                                _ProfileMenuItem(
+                                  iconify: Ph.flag_bold,
+                                  label: 'Report',
+                                  danger: true,
+                                  onTap: () => Navigator.pop(context),
+                                ),
+                              ]),
+                            ],
+                          ),
                         ),
                       ),
                     );
@@ -1120,6 +1157,59 @@ class _CoverVideoState extends State<_CoverVideo> {
       ],
     );
   }
+}
+
+// ======================= Profile post menu helpers =======================
+class _ProfileMenuSection extends StatelessWidget {
+  final List<_ProfileMenuItem> children;
+  const _ProfileMenuSection({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        children: List.generate(children.length, (i) {
+          final w = children[i];
+          final color = w.danger ? const Color(0xFFEF4444) : Colors.black87;
+          return Column(
+            children: [
+              if (i != 0)
+                const Divider(height: 1, thickness: 0.7, color: Color(0xFFE5E7EB)),
+              ListTile(
+                leading: Iconify(w.iconify, color: color, size: 24),
+                title: Text(
+                  w.label,
+                  style: TextStyle(fontWeight: FontWeight.w600, color: color),
+                ),
+                onTap: w.onTap,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+              ),
+            ],
+          );
+        }),
+      ),
+    );
+  }
+}
+
+class _ProfileMenuItem {
+  final String label;
+  final String iconify;
+  final bool danger;
+  final VoidCallback onTap;
+
+  const _ProfileMenuItem({
+    required this.label,
+    required this.iconify,
+    required this.onTap,
+    this.danger = false,
+  });
 }
 
 // ======================= Caption with tappable links =======================
