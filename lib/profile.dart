@@ -43,6 +43,8 @@ class ProfileUserScreen extends StatefulWidget {
 
 class _ProfileUserScreenState extends State<ProfileUserScreen> {
   final List<model.Post> _posts = <model.Post>[];
+  final List<model.Post> _repostEntries = <model.Post>[];
+  final Map<String, String> _repostAuthors = {};
   final List<_UserReply> _replies = [];
   _Tab _active = _Tab.iFeed;
   bool _loading = false;
@@ -64,6 +66,35 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
     });
     _fetchUserPosts();
     _fetchUserReplies();
+    _fetchUserReposts();
+  }
+
+  Future<void> _fetchUserReposts() async {
+    try {
+      final r = await apiGet('/reposts/user/${widget.userId}');
+      final list = expectJsonList(r);
+      final reposts = <model.Post>[];
+      final authors = <String, String>{};
+      for (final raw in list) {
+        final data = raw as Map<String, dynamic>;
+        final op = data['originalPost'] as Map<String, dynamic>?;
+        if (op == null) continue;
+        final post = _postFromMap(op);
+        reposts.add(post);
+        authors[post.id] = (op['authorName'] ?? 'User').toString();
+      }
+      if (!mounted) return;
+      setState(() {
+        _repostEntries
+          ..clear()
+          ..addAll(reposts);
+        _repostAuthors
+          ..clear()
+          ..addAll(authors);
+      });
+    } catch (e) {
+      debugPrint('fetchUserReposts error: $e');
+    }
   }
 
   Future<void> _fetchUserReplies() async {
@@ -340,7 +371,12 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
                 }
                 break;
               case _Tab.shuffle:
-                content = const _NothingYet(label: 'Nothing yet!');
+                content = _repostEntries.isEmpty
+                    ? const _NothingYet(label: 'No reposts yet')
+                    : _ProfileMediaList(
+                        posts: _repostEntries,
+                        repostAuthors: _repostAuthors,
+                      );
                 break;
               case _Tab.media:
                 final mediaPosts = _mediaOnly();
@@ -598,14 +634,21 @@ class _NothingYet extends StatelessWidget {
 
 // ======================= Media/iFeed: Full post cards =======================
 class _ProfileMediaList extends StatelessWidget {
-  const _ProfileMediaList({required this.posts});
+  const _ProfileMediaList({
+    required this.posts,
+    this.repostAuthors = const {},
+  });
   final List<model.Post> posts;
+  final Map<String, String> repostAuthors;
 
   @override
   Widget build(BuildContext context) {
     return ListView.separated(
       padding: const EdgeInsets.only(bottom: 24),
-      itemBuilder: (_, i) => ProfilePostCard.fromModel(posts[i]),
+      itemBuilder: (_, i) => ProfilePostCard.fromModel(
+        posts[i],
+        repostedFromUsername: repostAuthors[posts[i].id],
+      ),
       separatorBuilder: (_, __) => const SizedBox(height: 18),
       itemCount: posts.length,
     );
@@ -632,6 +675,7 @@ class ProfilePost {
   final String time;
   final String caption;
   final List<ProfileFeedMedia> media;
+  final String? repostedFromUsername;
 
   int likeCount;
   int commentCount;
@@ -646,6 +690,7 @@ class ProfilePost {
     required this.time,
     required this.caption,
     required this.media,
+    this.repostedFromUsername,
     this.likeCount = 0,
     this.commentCount = 0,
     this.shareCount = 0,
@@ -658,7 +703,7 @@ class ProfilePostCard extends StatefulWidget {
   const ProfilePostCard({super.key, required this.post});
   final ProfilePost post;
 
-  factory ProfilePostCard.fromModel(model.Post p) {
+  factory ProfilePostCard.fromModel(model.Post p, {String? repostedFromUsername}) {
     final media = p.media.map((m) {
       final isNetwork = !m.isLocal;
       final path = m.isLocal ? (m.file?.path ?? '') : (m.url ?? '');
@@ -676,6 +721,7 @@ class ProfilePostCard extends StatefulWidget {
         time: p.timeText,
         caption: p.caption,
         media: media,
+        repostedFromUsername: repostedFromUsername,
       ),
     );
   }
@@ -705,6 +751,26 @@ class ProfilePostCardState extends State<ProfilePostCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Repost label
+          if (post.repostedFromUsername != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(38, 10, 12, 0),
+              child: Row(
+                children: [
+                  const Iconify(Ph.shuffle_fill, size: 14, color: Color(0xff16a34a)),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Reposted from @${post.repostedFromUsername}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xff16a34a),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
           // Header
           Padding(
             padding: const EdgeInsets.fromLTRB(38, 10, 12, 5),
