@@ -107,6 +107,9 @@ class ChatState extends State<Chat> {
     return '${weekdays[t.weekday - 1]}, ${months[t.month - 1]} ${t.day}, $time';
   }
 
+
+
+
   final List<ChatMessage> _messages = [];
   ChatMessage? _replyingTo;
 
@@ -379,11 +382,12 @@ class ChatState extends State<Chat> {
 
   // =================== Pickers ===================
   Future<void> _pickMedia() async {
-    final XFile? x = await _picker.pickMedia();
-    if (x == null) return;
-    final isVideo =
-        (x.mimeType?.startsWith('video/') ?? false) ||
-        x.path.toLowerCase().endsWith('.mp4');
+    final List<XFile> xs = await _picker.pickMultiImage(
+      imageQuality: 90,
+      limit: 9,
+    );
+    if (xs.isEmpty) return;
+    final files = xs.map((x) => File(x.path)).toList();
     final reply = _replyingTo;
     setState(() {
       _replyingTo = null;
@@ -391,8 +395,7 @@ class ChatState extends State<Chat> {
         ChatMessage(
           id: UniqueKey().toString(),
           fromMe: true,
-          imageFile: isVideo ? null : File(x.path),
-          videoFile: isVideo ? File(x.path) : null,
+          imageFiles: files,
           avatarUrl: 'currentUserAvatar',
           replyTo: reply,
           timestampLabel: _makeTimestampLabel(),
@@ -509,12 +512,18 @@ class ChatState extends State<Chat> {
                                   onReply: () =>
                                       setState(() => _replyingTo = m),
                                   onSave:
-                                      (m.imageFile != null ||
+                                      (m.imageFiles != null && m.imageFiles!.isNotEmpty) ||
+                                          m.imageFile != null ||
                                           m.imageUrl != null ||
-                                          m.videoFile != null)
+                                          m.videoFile != null
                                       ? () async {
                                           try {
-                                            if (m.videoFile != null) {
+                                            if (m.imageFiles != null &&
+                                                m.imageFiles!.isNotEmpty) {
+                                              for (final f in m.imageFiles!) {
+                                                await Gal.putImage(f.path);
+                                              }
+                                            } else if (m.videoFile != null) {
                                               await Gal.putVideo(
                                                 m.videoFile!.path,
                                               );
@@ -537,12 +546,16 @@ class ChatState extends State<Chat> {
                                               await Gal.putImage(f.path);
                                             }
                                             if (context.mounted) {
+                                              final n =
+                                                  m.imageFiles?.length ?? 1;
                                               ScaffoldMessenger.of(
                                                 context,
                                               ).showSnackBar(
-                                                const SnackBar(
+                                                SnackBar(
                                                   content: Text(
-                                                    'Saved to gallery',
+                                                    n > 1
+                                                        ? 'Saved $n photos to gallery'
+                                                        : 'Saved to gallery',
                                                   ),
                                                 ),
                                               );
@@ -1313,6 +1326,7 @@ class ChatMessage {
     this.imageUrl,
     this.timestampLabel,
     this.imageFile,
+    this.imageFiles,
     this.videoFile,
     this.fileName,
     this.filePath,
@@ -1331,6 +1345,7 @@ class ChatMessage {
 
   // local selections
   final File? imageFile;
+  final List<File>? imageFiles; // multi-image grid
   final File? videoFile;
   final String? fileName;
   final String? filePath;
@@ -1463,6 +1478,13 @@ class MessageBubble extends StatelessWidget {
       content = _VoiceMessageBubble(
         durationSecs: message.voiceDurationSecs,
         voicePath: message.voicePath,
+      );
+    } else if (message.imageFiles != null && message.imageFiles!.isNotEmpty) {
+      content = _ImageGrid(
+        files: message.imageFiles!,
+        maxWidth: maxBubble,
+        messageId: message.id,
+        onDelete: onDelete,
       );
     } else if (message.imageFile != null) {
       content = GestureDetector(
@@ -2223,6 +2245,10 @@ class _ReplyBar extends StatelessWidget {
   String get _preview {
     if (message.text != null) return message.text!;
     if (message.isVoiceMessage) return '🎤 Voice message';
+    if (message.imageFiles != null && message.imageFiles!.isNotEmpty) {
+      final n = message.imageFiles!.length;
+      return n == 1 ? '📷 Photo' : '📷 $n Photos';
+    }
     if (message.imageFile != null || message.imageUrl != null) {
       return '📷 Photo';
     }
@@ -2291,6 +2317,10 @@ class _ReplyQuote extends StatelessWidget {
   String get _preview {
     if (original.text != null) return original.text!;
     if (original.isVoiceMessage) return '🎤 Voice message';
+    if (original.imageFiles != null && original.imageFiles!.isNotEmpty) {
+      final n = original.imageFiles!.length;
+      return n == 1 ? '📷 Photo' : '📷 $n Photos';
+    }
     if (original.imageFile != null || original.imageUrl != null) {
       return '📷 Photo';
     }
@@ -2394,6 +2424,313 @@ class _VideoThumbState extends State<_VideoThumb> {
           child: CircularProgressIndicator(
             color: Colors.white54,
             strokeWidth: 2,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ======================= IMAGE GRID =======================
+class _ImageGrid extends StatelessWidget {
+  const _ImageGrid({
+    required this.files,
+    required this.maxWidth,
+    required this.messageId,
+    this.onDelete,
+  });
+
+  final List<File> files;
+  final double maxWidth;
+  final String messageId;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    const gap = 3.0;
+    final half = (maxWidth - gap) / 2;
+    final count = files.length;
+
+    void open(int index) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => _MultiImageViewer(
+            files: files,
+            initialIndex: index,
+            messageId: messageId,
+            onDelete: onDelete,
+          ),
+        ),
+      );
+    }
+
+    Widget cell(int index, double w, double h, {bool overflow = false}) {
+      final extra = files.length - 4;
+      return GestureDetector(
+        onTap: () => open(index),
+        child: SizedBox(
+          width: w,
+          height: h,
+          child: Hero(
+            tag: '${messageId}_$index',
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Image.file(files[index], fit: BoxFit.cover),
+                  if (overflow && extra > 0)
+                    ColoredBox(
+                      color: Colors.black54,
+                      child: Center(
+                        child: Text(
+                          '+$extra',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // ── 1 image ──────────────────────────────────────────────
+    if (count == 1) {
+      return GestureDetector(
+        onTap: () => open(0),
+        child: Hero(
+          tag: '${messageId}_0',
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Image.file(
+              files[0],
+              width: maxWidth,
+              fit: BoxFit.cover,
+            ),
+          ),
+        ),
+      );
+    }
+
+    // ── 2 images ─────────────────────────────────────────────
+    if (count == 2) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            cell(0, half, half),
+            const SizedBox(width: gap),
+            cell(1, half, half),
+          ],
+        ),
+      );
+    }
+
+    // ── 3 images ─────────────────────────────────────────────
+    if (count == 3) {
+      final bigH = half + gap + half * 0.55;
+      final smallH = (bigH - gap) / 2;
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            cell(0, half, bigH),
+            const SizedBox(width: gap),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                cell(1, half, smallH),
+                const SizedBox(height: gap),
+                cell(2, half, smallH),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    // ── 4+ images — 2×2, last cell shows overflow badge ──────
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              cell(0, half, half),
+              const SizedBox(width: gap),
+              cell(1, half, half),
+            ],
+          ),
+          const SizedBox(height: gap),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              cell(2, half, half),
+              const SizedBox(width: gap),
+              cell(3, half, half, overflow: count > 4),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ======================= MULTI-IMAGE VIEWER =======================
+class _MultiImageViewer extends StatefulWidget {
+  const _MultiImageViewer({
+    required this.files,
+    required this.initialIndex,
+    required this.messageId,
+    this.onDelete,
+  });
+
+  final List<File> files;
+  final int initialIndex;
+  final String messageId;
+  final VoidCallback? onDelete;
+
+  @override
+  State<_MultiImageViewer> createState() => _MultiImageViewerState();
+}
+
+class _MultiImageViewerState extends State<_MultiImageViewer> {
+  late final PageController _page;
+  late int _current;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _current = widget.initialIndex;
+    _page = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _page.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveAll() async {
+    setState(() => _saving = true);
+    try {
+      for (final f in widget.files) {
+        await Gal.putImage(f.path);
+      }
+      if (mounted) {
+        final n = widget.files.length;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              n == 1 ? 'Saved to gallery' : 'Saved $n photos to gallery',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Save failed: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  void _confirmDelete() {
+    showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete message?'),
+        content: const Text('This will remove the message from the chat.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    ).then((confirmed) {
+      if (confirmed == true && mounted) {
+        Navigator.pop(context);
+        widget.onDelete?.call();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: Text(
+          '${_current + 1} / ${widget.files.length}',
+          style: const TextStyle(color: Colors.white, fontSize: 14),
+        ),
+        centerTitle: true,
+      ),
+      body: PageView.builder(
+        controller: _page,
+        itemCount: widget.files.length,
+        onPageChanged: (i) => setState(() => _current = i),
+        itemBuilder: (_, i) => Center(
+          child: Hero(
+            tag: '${widget.messageId}_$i',
+            child: InteractiveViewer(
+              minScale: 0.8,
+              maxScale: 5.0,
+              child: Image.file(widget.files[i], fit: BoxFit.contain),
+            ),
+          ),
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Container(
+          color: Colors.black87,
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _ActionBtn(
+                icon: _saving
+                    ? Icons.hourglass_top_rounded
+                    : Icons.download_rounded,
+                label: widget.files.length == 1 ? 'Save' : 'Save all',
+                onTap: _saving ? null : _saveAll,
+              ),
+              if (widget.onDelete != null)
+                _ActionBtn(
+                  icon: Icons.delete_outline_rounded,
+                  label: 'Delete',
+                  color: Colors.red.shade300,
+                  onTap: _confirmDelete,
+                ),
+            ],
           ),
         ),
       ),
