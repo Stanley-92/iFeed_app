@@ -18,6 +18,7 @@ import 'package:video_player/video_player.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:gal/gal.dart';
 import 'package:http/http.dart' as http;
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 
 /// ======================= CHAT SCREEN =======================
 class Chat extends StatefulWidget {
@@ -49,6 +50,8 @@ class ChatState extends State<Chat> {
   double _micDragOffset = 0;
   double _lockProgress = 0;
   bool _micCancelled = false;
+  bool _showEmojiPicker = false;
+  final FocusNode _textFocusNode = FocusNode();
 
   String get _recordTimeLabel {
     final m = _recordSeconds ~/ 60;
@@ -113,6 +116,11 @@ class ChatState extends State<Chat> {
     _controller.addListener(() {
       final has = _controller.text.trim().isNotEmpty;
       if (has != _hasText) setState(() => _hasText = has);
+    });
+    _textFocusNode.addListener(() {
+      if (_textFocusNode.hasFocus && _showEmojiPicker) {
+        setState(() => _showEmojiPicker = false);
+      }
     });
   }
 
@@ -355,7 +363,18 @@ class ChatState extends State<Chat> {
     _audioRecorder.dispose();
     _controller.dispose();
     _scroll.dispose();
+    _textFocusNode.dispose();
     super.dispose();
+  }
+
+  void _toggleEmojiPicker() {
+    if (_showEmojiPicker) {
+      setState(() => _showEmojiPicker = false);
+      _textFocusNode.requestFocus();
+    } else {
+      FocusScope.of(context).unfocus();
+      setState(() => _showEmojiPicker = true);
+    }
   }
 
   // =================== Pickers ===================
@@ -434,429 +453,484 @@ class ChatState extends State<Chat> {
   Widget build(BuildContext context) {
     final bg = Theme.of(context).scaffoldBackgroundColor;
 
-    return Scaffold(
-      backgroundColor: const Color(0xfffff9f7),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _Header(
-              contactName: widget.contactName,
-              avatarUrl: widget.avatarUrl,
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: _messages.isEmpty
-                  ? const _EmptyState()
-                  : ListView.builder(
-                      controller: _scroll,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      itemCount: _messages.length,
-                      itemBuilder: (context, i) {
-                        final m = _messages[i];
-                        return Column(
-                          children: [
-                            if (m.timestampLabel != null) ...[
-                              const SizedBox(height: 6),
-                              Text(
-                                m.timestampLabel!,
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                            ],
-                            Align(
-                              alignment: m.fromMe
-                                  ? Alignment.centerRight
-                                  : Alignment.centerLeft,
-                              child: MessageBubble(
-                                message: m,
-                                onDelete: () => setState(
-                                  () => _messages.removeWhere(
-                                    (msg) => msg.id == m.id,
+    return PopScope(
+      canPop: !_showEmojiPicker,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _showEmojiPicker) {
+          setState(() => _showEmojiPicker = false);
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xfffff9f7),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _Header(
+                contactName: widget.contactName,
+                avatarUrl: widget.avatarUrl,
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: _messages.isEmpty
+                    ? const _EmptyState()
+                    : ListView.builder(
+                        controller: _scroll,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        itemCount: _messages.length,
+                        itemBuilder: (context, i) {
+                          final m = _messages[i];
+                          return Column(
+                            children: [
+                              if (m.timestampLabel != null) ...[
+                                const SizedBox(height: 6),
+                                Text(
+                                  m.timestampLabel!,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey,
                                   ),
                                 ),
-                                onReply: () => setState(() => _replyingTo = m),
-                                onSave:
-                                    (m.imageFile != null ||
-                                        m.imageUrl != null ||
-                                        m.videoFile != null)
-                                    ? () async {
-                                        try {
-                                          if (m.videoFile != null) {
-                                            await Gal.putVideo(
-                                              m.videoFile!.path,
-                                            );
-                                          } else if (m.imageFile != null) {
-                                            await Gal.putImage(
-                                              m.imageFile!.path,
-                                            );
-                                          } else if (m.imageUrl != null) {
-                                            final resp = await http.get(
-                                              Uri.parse(m.imageUrl!),
-                                            );
-                                            final tmp =
-                                                await getTemporaryDirectory();
-                                            final f = File(
-                                              '${tmp.path}/img_${DateTime.now().millisecondsSinceEpoch}.jpg',
-                                            );
-                                            await f.writeAsBytes(
-                                              resp.bodyBytes,
-                                            );
-                                            await Gal.putImage(f.path);
-                                          }
-                                          if (context.mounted) {
-                                            ScaffoldMessenger.of(
-                                              context,
-                                            ).showSnackBar(
-                                              const SnackBar(
-                                                content: Text(
-                                                  'Saved to gallery',
+                                const SizedBox(height: 8),
+                              ],
+                              Align(
+                                alignment: m.fromMe
+                                    ? Alignment.centerRight
+                                    : Alignment.centerLeft,
+                                child: MessageBubble(
+                                  message: m,
+                                  onDelete: () => setState(
+                                    () => _messages.removeWhere(
+                                      (msg) => msg.id == m.id,
+                                    ),
+                                  ),
+                                  onReply: () =>
+                                      setState(() => _replyingTo = m),
+                                  onSave:
+                                      (m.imageFile != null ||
+                                          m.imageUrl != null ||
+                                          m.videoFile != null)
+                                      ? () async {
+                                          try {
+                                            if (m.videoFile != null) {
+                                              await Gal.putVideo(
+                                                m.videoFile!.path,
+                                              );
+                                            } else if (m.imageFile != null) {
+                                              await Gal.putImage(
+                                                m.imageFile!.path,
+                                              );
+                                            } else if (m.imageUrl != null) {
+                                              final resp = await http.get(
+                                                Uri.parse(m.imageUrl!),
+                                              );
+                                              final tmp =
+                                                  await getTemporaryDirectory();
+                                              final f = File(
+                                                '${tmp.path}/img_${DateTime.now().millisecondsSinceEpoch}.jpg',
+                                              );
+                                              await f.writeAsBytes(
+                                                resp.bodyBytes,
+                                              );
+                                              await Gal.putImage(f.path);
+                                            }
+                                            if (context.mounted) {
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text(
+                                                    'Saved to gallery',
+                                                  ),
                                                 ),
-                                              ),
-                                            );
-                                          }
-                                        } catch (e) {
-                                          if (context.mounted) {
-                                            ScaffoldMessenger.of(
-                                              context,
-                                            ).showSnackBar(
-                                              SnackBar(
-                                                content: Text(
-                                                  'Save failed: $e',
+                                              );
+                                            }
+                                          } catch (e) {
+                                            if (context.mounted) {
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                SnackBar(
+                                                  content: Text(
+                                                    'Save failed: $e',
+                                                  ),
                                                 ),
-                                              ),
-                                            );
+                                              );
+                                            }
                                           }
                                         }
-                                      }
-                                    : null,
-                                onCopy: m.text != null
-                                    ? () {
-                                        Clipboard.setData(
-                                          ClipboardData(text: m.text!),
-                                        );
-                                        ScaffoldMessenger.of(
-                                          context,
-                                        ).showSnackBar(
-                                          const SnackBar(
-                                            content: Text('Copied'),
-                                          ),
-                                        );
-                                      }
-                                    : null,
+                                      : null,
+                                  onCopy: m.text != null
+                                      ? () {
+                                          Clipboard.setData(
+                                            ClipboardData(text: m.text!),
+                                          );
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Copied'),
+                                            ),
+                                          );
+                                        }
+                                      : null,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 10),
-                          ],
-                        );
-                      },
-                    ),
-            ),
-
-            // Reply preview bar
-            if (_replyingTo != null)
-              _ReplyBar(
-                message: _replyingTo!,
-                onCancel: () => setState(() => _replyingTo = null),
+                              const SizedBox(height: 10),
+                            ],
+                          );
+                        },
+                      ),
               ),
 
-            // Composer
-            Container(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-              color: bg,
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 220),
-                child: _isLocked
-                    // ── Locked recording row ──────────────────────────────
-                    ? Row(
-                        key: const ValueKey('locked'),
-                        children: [
-                          // 🗑 Trash — cancel recording
-                          GestureDetector(
-                            onTap: _cancelRecording,
-                            child: Container(
-                              width: 45,
-                              height: 45,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: Colors.red.shade50,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.red.shade200),
-                              ),
-                              child: Icon(
-                                Icons.delete_outline_rounded,
-                                color: Colors.red.shade400,
-                                size: 22,
+              // Reply preview bar
+              if (_replyingTo != null)
+                _ReplyBar(
+                  message: _replyingTo!,
+                  onCancel: () => setState(() => _replyingTo = null),
+                ),
+
+              // Composer
+              Container(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                color: bg,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  child: _isLocked
+                      // ── Locked recording row ──────────────────────────────
+                      ? Row(
+                          key: const ValueKey('locked'),
+                          children: [
+                            // 🗑 Trash — cancel recording
+                            GestureDetector(
+                              onTap: _cancelRecording,
+                              child: Container(
+                                width: 45,
+                                height: 45,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: Colors.red.shade50,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Colors.red.shade200,
+                                  ),
+                                ),
+                                child: Icon(
+                                  Icons.delete_outline_rounded,
+                                  color: Colors.red.shade400,
+                                  size: 22,
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          // Recording bar with pause/resume
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 10,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF5B5FEF),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Row(
-                                children: [
-                                  _isPaused
-                                      ? Container(
-                                          width: 10,
-                                          height: 10,
-                                          decoration: const BoxDecoration(
-                                            color: Color(0xFFCDD0FF),
-                                            shape: BoxShape.circle,
-                                          ),
-                                        )
-                                      : _PulsingDot(),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    _recordTimeLabel,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600,
-                                      letterSpacing: 1.1,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  if (!_isPaused) _WaveformBars(),
-                                  if (_isPaused)
-                                    const Text(
-                                      'Paused',
-                                      style: TextStyle(
-                                        color: Color(0xFFCDD0FF),
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  const Spacer(),
-                                  // ⏸ / ▶ toggle
-                                  GestureDetector(
-                                    onTap: _isPaused
-                                        ? _resumeRecording
-                                        : _pauseRecording,
-                                    child: Container(
-                                      width: 32,
-                                      height: 32,
-                                      decoration: const BoxDecoration(
-                                        color: Color(0x33FFFFFF),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: Icon(
-                                        _isPaused
-                                            ? Icons.play_arrow_rounded
-                                            : Icons.pause_rounded,
+                            const SizedBox(width: 12),
+                            // Recording bar with pause/resume
+                            Expanded(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF5B5FEF),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Row(
+                                  children: [
+                                    _isPaused
+                                        ? Container(
+                                            width: 10,
+                                            height: 10,
+                                            decoration: const BoxDecoration(
+                                              color: Color(0xFFCDD0FF),
+                                              shape: BoxShape.circle,
+                                            ),
+                                          )
+                                        : _PulsingDot(),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      _recordTimeLabel,
+                                      style: const TextStyle(
                                         color: Colors.white,
-                                        size: 18,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: 1.1,
                                       ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          // ➤ Send
-                          GestureDetector(
-                            onTap: _stopAndSendRecording,
-                            child: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF22C55E),
-                                borderRadius: BorderRadius.circular(24),
-                              ),
-                              child: const Icon(
-                                Icons.send_rounded,
-                                color: Colors.white,
-                                size: 25,
-                              ),
-                            ),
-                          ),
-                        ],
-                      )
-                    // ── Normal / unlocked recording row ───────────────────
-                    : Row(
-                        key: const ValueKey('normal'),
-                        children: [
-                          InkWell(
-                            key: _cameraKey,
-                            onTap: _isRecording ? null : _openAttachmentSheet,
-                            customBorder: const CircleBorder(),
-                            child: Container(
-                              width: 45,
-                              height: 45,
-                              alignment: Alignment.center,
-                              decoration: const BoxDecoration(
-                                color: Color(0xFF696969),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Iconify(
-                                Ph.camera_bold,
-                                size: 25,
-                                color: Color(0xFFA3A3A3),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 18),
-                          Expanded(
-                            child: AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 200),
-                              child: _isRecording
-                                  ? _RecordingInline(
-                                      key: const ValueKey('rec'),
-                                      seconds: _recordSeconds,
-                                      onCancel: _cancelRecording,
-                                      micDragOffset: _micDragOffset,
-                                      lockProgress: _lockProgress,
-                                    )
-                                  : Container(
-                                      key: const ValueKey('input'),
-                                      padding: const EdgeInsets.only(
-                                        left: 14,
-                                        right: 6,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFF2F2F3),
-                                        borderRadius: BorderRadius.circular(20),
-                                        border: Border.all(
-                                          color: const Color(0xFF466ED6),
+                                    const SizedBox(width: 8),
+                                    if (!_isPaused) _WaveformBars(),
+                                    if (_isPaused)
+                                      const Text(
+                                        'Paused',
+                                        style: TextStyle(
+                                          color: Color(0xFFCDD0FF),
+                                          fontSize: 12,
                                         ),
                                       ),
-                                      child: Row(
-                                        children: [
-                                          Expanded(
-                                            child: TextField(
-                                              controller: _controller,
-                                              minLines: 1,
-                                              maxLines: 5,
-                                              decoration: const InputDecoration(
-                                                hintText: 'Write…',
-                                                border: InputBorder.none,
-                                              ),
-                                              onSubmitted: (_) => _send(),
-                                            ),
+                                    const Spacer(),
+                                    // ⏸ / ▶ toggle
+                                    GestureDetector(
+                                      onTap: _isPaused
+                                          ? _resumeRecording
+                                          : _pauseRecording,
+                                      child: Container(
+                                        width: 32,
+                                        height: 32,
+                                        decoration: const BoxDecoration(
+                                          color: Color(0x33FFFFFF),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(
+                                          _isPaused
+                                              ? Icons.play_arrow_rounded
+                                              : Icons.pause_rounded,
+                                          color: Colors.white,
+                                          size: 18,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            // ➤ Send
+                            GestureDetector(
+                              onTap: _stopAndSendRecording,
+                              child: Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF22C55E),
+                                  borderRadius: BorderRadius.circular(24),
+                                ),
+                                child: const Icon(
+                                  Icons.send_rounded,
+                                  color: Colors.white,
+                                  size: 25,
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      // ── Normal / unlocked recording row ───────────────────
+                      : Row(
+                          key: const ValueKey('normal'),
+                          children: [
+                            InkWell(
+                              key: _cameraKey,
+                              onTap: _isRecording ? null : _openAttachmentSheet,
+                              customBorder: const CircleBorder(),
+                              child: Container(
+                                width: 45,
+                                height: 45,
+                                alignment: Alignment.center,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF696969),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Iconify(
+                                  Ph.camera_bold,
+                                  size: 25,
+                                  color: Color(0xFFA3A3A3),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 18),
+                            Expanded(
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 200),
+                                child: _isRecording
+                                    ? _RecordingInline(
+                                        key: const ValueKey('rec'),
+                                        seconds: _recordSeconds,
+                                        onCancel: _cancelRecording,
+                                        micDragOffset: _micDragOffset,
+                                        lockProgress: _lockProgress,
+                                      )
+                                    : Container(
+                                        key: const ValueKey('input'),
+                                        padding: const EdgeInsets.only(
+                                          left: 14,
+                                          right: 6,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF2F2F3),
+                                          borderRadius: BorderRadius.circular(
+                                            20,
                                           ),
-                                          GestureDetector(
-                                            onTap: _pickMedia,
-                                            child: const Padding(
-                                              padding: EdgeInsets.symmetric(
-                                                horizontal: 4,
-                                              ),
-                                              child: Iconify(
-                                                Ph.image_bold,
-                                                size: 22,
-                                                color: Color(0xFF9CA3AF),
-                                              ),
-                                            ),
+                                          border: Border.all(
+                                            color: const Color(0xFF466ED6),
                                           ),
-                                          const Padding(
-                                            padding: EdgeInsets.symmetric(
-                                              horizontal: 4,
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Expanded(
+                                              child: TextField(
+                                                controller: _controller,
+                                                focusNode: _textFocusNode,
+                                                minLines: 1,
+                                                maxLines: 5,
+                                                decoration:
+                                                    const InputDecoration(
+                                                      hintText: 'Write…',
+                                                      border: InputBorder.none,
+                                                    ),
+                                                onSubmitted: (_) => _send(),
+                                              ),
                                             ),
-                                            child: Iconify(
-                                              Ph.smiley_bold,
-                                              size: 22,
-                                              color: Color(0xFF9CA3AF),
+                                            GestureDetector(
+                                              onTap: _pickMedia,
+                                              child: const Padding(
+                                                padding: EdgeInsets.symmetric(
+                                                  horizontal: 4,
+                                                ),
+                                                child: Iconify(
+                                                  Ph.image_bold,
+                                                  size: 22,
+                                                  color: Color(0xFF9CA3AF),
+                                                ),
+                                              ),
                                             ),
+                                            GestureDetector(
+                                              onTap: _toggleEmojiPicker,
+                                              child: Padding(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 4,
+                                                    ),
+                                                child: Iconify(
+                                                  _showEmojiPicker
+                                                      ? Ph.keyboard_bold
+                                                      : Ph.smiley_bold,
+                                                  size: 22,
+                                                  color: _showEmojiPicker
+                                                      ? const Color(0xFF617FD0)
+                                                      : const Color(0xFF9CA3AF),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            // Right button: mic / send
+                            AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 180),
+                              transitionBuilder: (child, anim) =>
+                                  ScaleTransition(scale: anim, child: child),
+                              child: _hasText
+                                  ? InkWell(
+                                      key: const ValueKey('send-text'),
+                                      onTap: _send,
+                                      borderRadius: BorderRadius.circular(24),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF617FD0),
+                                          borderRadius: BorderRadius.circular(
+                                            24,
                                           ),
-                                        ],
+                                        ),
+                                        child: const Iconify(
+                                          Ph.paper_plane_tilt_bold,
+                                          color: Color(0xFF303030),
+                                          size: 25,
+                                        ),
+                                      ),
+                                    )
+                                  : Listener(
+                                      key: const ValueKey('mic'),
+                                      onPointerDown: (_) => _startRecording(),
+                                      onPointerMove: (e) {
+                                        if (_micCancelled ||
+                                            _isLocked ||
+                                            !_isRecording)
+                                          return;
+                                        // slide left → cancel
+                                        if (e.delta.dx < 0) {
+                                          setState(
+                                            () => _micDragOffset += e.delta.dx
+                                                .abs(),
+                                          );
+                                          if (_micDragOffset >= 120) {
+                                            _micCancelled = true;
+                                            _cancelRecording();
+                                          }
+                                        }
+                                        // slide up → lock
+                                        if (e.delta.dy < 0) {
+                                          setState(
+                                            () => _lockProgress += e.delta.dy
+                                                .abs(),
+                                          );
+                                          if (_lockProgress >= 80) {
+                                            _lockRecording();
+                                          }
+                                        }
+                                      },
+                                      onPointerUp: (_) {
+                                        if (!_micCancelled && !_isLocked) {
+                                          _stopAndSendRecording();
+                                        }
+                                      },
+                                      child: Container(
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          color: _isRecording
+                                              ? const Color(0xFFEF4444)
+                                              : const Color(0xFF617FD0),
+                                          borderRadius: BorderRadius.circular(
+                                            24,
+                                          ),
+                                        ),
+                                        child: const Iconify(
+                                          Ph.microphone_bold,
+                                          color: Colors.white,
+                                          size: 25,
+                                        ),
                                       ),
                                     ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          // Right button: mic / send
-                          AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 180),
-                            transitionBuilder: (child, anim) =>
-                                ScaleTransition(scale: anim, child: child),
-                            child: _hasText
-                                ? InkWell(
-                                    key: const ValueKey('send-text'),
-                                    onTap: _send,
-                                    borderRadius: BorderRadius.circular(24),
-                                    child: Container(
-                                      padding: const EdgeInsets.all(10),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF617FD0),
-                                        borderRadius: BorderRadius.circular(24),
-                                      ),
-                                      child: const Iconify(
-                                        Ph.paper_plane_tilt_bold,
-                                        color: Color(0xFF303030),
-                                        size: 25,
-                                      ),
-                                    ),
-                                  )
-                                : Listener(
-                                    key: const ValueKey('mic'),
-                                    onPointerDown: (_) => _startRecording(),
-                                    onPointerMove: (e) {
-                                      if (_micCancelled ||
-                                          _isLocked ||
-                                          !_isRecording)
-                                        return;
-                                      // slide left → cancel
-                                      if (e.delta.dx < 0) {
-                                        setState(
-                                          () => _micDragOffset += e.delta.dx
-                                              .abs(),
-                                        );
-                                        if (_micDragOffset >= 120) {
-                                          _micCancelled = true;
-                                          _cancelRecording();
-                                        }
-                                      }
-                                      // slide up → lock
-                                      if (e.delta.dy < 0) {
-                                        setState(
-                                          () =>
-                                              _lockProgress += e.delta.dy.abs(),
-                                        );
-                                        if (_lockProgress >= 80) {
-                                          _lockRecording();
-                                        }
-                                      }
-                                    },
-                                    onPointerUp: (_) {
-                                      if (!_micCancelled && !_isLocked) {
-                                        _stopAndSendRecording();
-                                      }
-                                    },
-                                    child: Container(
-                                      padding: const EdgeInsets.all(10),
-                                      decoration: BoxDecoration(
-                                        color: _isRecording
-                                            ? const Color(0xFFEF4444)
-                                            : const Color(0xFF617FD0),
-                                        borderRadius: BorderRadius.circular(24),
-                                      ),
-                                      child: const Iconify(
-                                        Ph.microphone_bold,
-                                        color: Colors.white,
-                                        size: 25,
-                                      ),
-                                    ),
-                                  ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                ),
               ),
-            ),
-          ],
+
+              // ── Emoji picker panel ──────────────────────────────────────
+              Offstage(
+                offstage: !_showEmojiPicker,
+                child: EmojiPicker(
+                  textEditingController: _controller,
+                  config: Config(
+                    height: 280,
+                    checkPlatformCompatibility: true,
+                    emojiViewConfig: EmojiViewConfig(
+                      emojiSizeMax: 28 * (Platform.isIOS ? 1.2 : 1.0),
+                      backgroundColor: Colors.white,
+                    ),
+                    categoryViewConfig: const CategoryViewConfig(
+                      initCategory: Category.RECENT,
+                      backgroundColor: Colors.white,
+                    ),
+                    bottomActionBarConfig: const BottomActionBarConfig(
+                      enabled: true,
+                      backgroundColor: Colors.white,
+                      buttonIconColor: Color(0xFF617FD0),
+                    ),
+                    searchViewConfig: const SearchViewConfig(
+                      backgroundColor: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-    );
+      ), // closes PopScope child Scaffold
+    ); // closes PopScope
   }
 }
 
