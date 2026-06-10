@@ -147,9 +147,10 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
         final mediaList = mediaRaw.map((m) {
           final url = (m['url'] as String?) ?? '';
           final typeStr = (m['type'] as String?) ?? 'image';
+          final isVideo = typeStr == 'video' || _isVideoPath(url);
           return _FeedMedia(
             path: url,
-            type: typeStr == 'video' ? MediaType.video : MediaType.image,
+            type: isVideo ? MediaType.video : MediaType.image,
             isNetwork: true,
           );
         }).toList();
@@ -251,9 +252,17 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
   }) async {
     try {
       await PostService().deletePost(postId);
+      if (!mounted) return;
       setState(() => _feedPosts.removeWhere((p) => p.id == postId));
     } catch (e) {
       debugPrint('Delete error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to delete post: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -848,7 +857,7 @@ class StoryRing extends StatelessWidget {
   final VoidCallback? onPlusTap;
 
   const StoryRing({
-    Key? key,
+    super.key,
     required String imageUrl,
     this.showPlus = false,
     this.isVideo = false,
@@ -856,11 +865,10 @@ class StoryRing extends StatelessWidget {
     this.badgeCount = 0,
     this.onPlusTap,
   }) : imageUrl = imageUrl,
-       _provider = null,
-       super(key: key);
+       _provider = null;
 
   const StoryRing.fromProvider({
-    Key? key,
+    super.key,
     required ImageProvider? imageProvider,
     this.showPlus = false,
     this.isVideo = false,
@@ -868,8 +876,7 @@ class StoryRing extends StatelessWidget {
     this.badgeCount = 0,
     this.onPlusTap,
   }) : imageUrl = null,
-       _provider = imageProvider,
-       super(key: key);
+       _provider = imageProvider;
 
   ImageProvider? get provider {
     if (_provider != null) return _provider;
@@ -983,7 +990,6 @@ class StoryRing extends StatelessWidget {
 
 class _StoryTile extends StatelessWidget {
   const _StoryTile({
-    super.key,
     required this.story,
     required this.onTap,
     this.onPlusTap,
@@ -1654,69 +1660,6 @@ class _PostMedia extends StatelessWidget {
     );
   }
 
-  void _showVideoSheet({
-    required BuildContext context,
-    required _FeedMedia media,
-    required VoidCallback onFullscreen,
-  }) {
-    showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (_) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Iconify(Ri.youtube_line, size: 24),
-                title: const Text('View Reel'),
-                onTap: () {
-                  Navigator.pop(context);
-                  // Open ReelsPage with this single item (simple & robust)
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ReelsPage(
-                        items: [
-                          ReelItem(
-                            id: DateTime.now().millisecondsSinceEpoch
-                                .toString(),
-                            videoUrl: media.isNetwork
-                                ? media.path
-                                : 'file://${media.path}',
-                            caption: 'Reel',
-                            music: 'Original Audio',
-                            avatarUrl: currentUserAvatar,
-                            authorName: currentUserName,
-                            likes: 0,
-                            comments: 0,
-                          ),
-                        ],
-                        initialIndex: 0,
-                      ),
-                    ),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Iconify(MaterialSymbols.fullscreen, size: 24),
-                title: const Text('View Fullscreen'),
-                onTap: () {
-                  Navigator.pop(context);
-                  onFullscreen();
-                },
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final forcedAspect = _forcedAspectFrom(post.aspect);
@@ -1739,10 +1682,27 @@ class _PostMedia extends StatelessWidget {
                 m: m,
                 aspect: baseAspect,
                 onTap: () => _openViewerPaged(context, 0),
-                onVideoTap: () => _showVideoSheet(
-                  context: context,
-                  media: m,
-                  onFullscreen: () => _openViewerPaged(context, 0),
+                onVideoTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ReelsPage(
+                      items: [
+                        ReelItem(
+                          id: DateTime.now().millisecondsSinceEpoch.toString(),
+                          videoUrl: m.isNetwork ? m.path : 'file://${m.path}',
+                          caption: post.caption.isNotEmpty
+                              ? post.caption
+                              : 'Reel',
+                          music: 'Original Audio',
+                          avatarUrl: post.avatar,
+                          authorName: post.username,
+                          likes: post.likeCount,
+                          comments: post.commentCount,
+                        ),
+                      ],
+                      initialIndex: 0,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -1766,10 +1726,28 @@ class _PostMedia extends StatelessWidget {
                   m: m,
                   aspect: baseAspect,
                   onTap: () => _openViewerPaged(context, i),
-                  onVideoTap: () => _showVideoSheet(
-                    context: context,
-                    media: m,
-                    onFullscreen: () => _openViewerPaged(context, i),
+                  onVideoTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ReelsPage(
+                        items: [
+                          ReelItem(
+                            id: DateTime.now().millisecondsSinceEpoch
+                                .toString(),
+                            videoUrl: m.isNetwork ? m.path : 'file://${m.path}',
+                            caption: post.caption.isNotEmpty
+                                ? post.caption
+                                : 'Reel',
+                            music: 'Original Audio',
+                            avatarUrl: post.avatar,
+                            authorName: post.username,
+                            likes: post.likeCount,
+                            comments: post.commentCount,
+                          ),
+                        ],
+                        initialIndex: 0,
+                      ),
+                    ),
                   ),
                 ),
               );
@@ -1827,7 +1805,11 @@ class _RoundedTile extends StatelessWidget {
                             return const SizedBox.shrink();
                           },
                         ))
-                : _CoverVideo(path: m.path, isNetwork: m.isNetwork),
+                : _CoverVideo(
+                    path: m.path,
+                    isNetwork: m.isNetwork,
+                    onTap: onVideoTap,
+                  ),
           ),
         ),
       ),
@@ -1837,7 +1819,7 @@ class _RoundedTile extends StatelessWidget {
 
 class FillMedia extends StatelessWidget {
   final _FeedMedia m;
-  const FillMedia({required this.m});
+  const FillMedia({super.key, required this.m});
   @override
   Widget build(BuildContext context) {
     if (m.type == MediaType.image) {
@@ -1861,7 +1843,8 @@ class FillMedia extends StatelessWidget {
 class _CoverVideo extends StatefulWidget {
   final String path;
   final bool isNetwork;
-  const _CoverVideo({required this.path, required this.isNetwork});
+  final VoidCallback? onTap;
+  const _CoverVideo({required this.path, required this.isNetwork, this.onTap});
   @override
   State<_CoverVideo> createState() => _CoverVideoState();
 }
@@ -1937,7 +1920,7 @@ class _CoverVideoState extends State<_CoverVideo> {
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              onTap: _toggle,
+              onTap: widget.onTap ?? _toggle,
               child: Center(
                 child: AnimatedOpacity(
                   opacity: _playing ? 0.0 : 1.0,
@@ -2175,8 +2158,9 @@ class _UploadPostPageState extends State<UploadPostPage> {
 
   Future<void> _pickImage() async {
     final x = await _picker.pickImage(source: ImageSource.gallery);
-    if (x != null)
+    if (x != null) {
       setState(() => _media.add(PickedMedia(File(x.path), MediaType.image)));
+    }
   }
 
   Future<void> _pickMultipleMedia() async {
@@ -2463,10 +2447,10 @@ class _Post {
 
   int likeCount;
   int commentCount;
-  int shareCount; // reposts
+  int shareCount = 0; // reposts
   bool isLiked;
-  bool isShared;
-  bool isReposted;
+  bool isShared = false;
+  bool isReposted = false;
 
   List<reply.Comment> comments;
 
@@ -2481,10 +2465,7 @@ class _Post {
     this.aspect = CardAspect.auto,
     this.likeCount = 0,
     this.commentCount = 0,
-    this.shareCount = 0,
     this.isLiked = false,
-    this.isShared = false,
-    this.isReposted = false,
     List<reply.Comment>? comments,
   }) : comments = comments ?? <reply.Comment>[];
 }

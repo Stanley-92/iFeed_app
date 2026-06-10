@@ -17,6 +17,7 @@ import 'package:iconify_flutter/icons/fa6_regular.dart';
 import 'package:iconify_flutter/icons/teenyicons.dart';
 import 'package:video_player/video_player.dart';
 
+import 'services/post_service.dart';
 import 'setting_page.dart';
 import 'share_popup.dart';
 import 'edit_page.dart' show EditProfilePage, ProfileEditResult;
@@ -29,6 +30,17 @@ import 'mainfeed.dart' show MainfeedScreen, UploadPostPage;
 
 // Leave empty string for now; we won't create NetworkImage('') with it.
 const String _defaultAvatar = '';
+
+bool _isVideoUrl(String url) {
+  final s = url.toLowerCase().split('?').first;
+  return s.endsWith('.mp4') ||
+      s.endsWith('.mov') ||
+      s.endsWith('.m4v') ||
+      s.endsWith('.3gp') ||
+      s.endsWith('.webm') ||
+      s.endsWith('.mkv') ||
+      s.endsWith('.avi');
+}
 
 enum _Tab { iFeed, shuffle, media, replies }
 
@@ -143,7 +155,8 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
     final media = mediaRaw.map<model.PostMedia>((m) {
       final url = (m['url'] as String?) ?? '';
       final typeStr = (m['type'] as String?) ?? 'image';
-      return typeStr == 'video'
+      final isVideo = typeStr == 'video' || _isVideoUrl(url);
+      return isVideo
           ? model.PostMedia.video(url)
           : model.PostMedia.image(url);
     }).toList();
@@ -317,6 +330,22 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
     }
   }
 
+  Future<void> _deletePost(String postId) async {
+    try {
+      await PostService().deletePost(postId);
+      if (!mounted) return;
+      setState(() {
+        _posts.removeWhere((p) => p.id == postId);
+        _repostEntries.removeWhere((p) => p.id == postId);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to delete: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
   bool _hasMedia(model.Post p) => p.media.isNotEmpty;
 
   List<model.Post> _mediaOnly() => _posts.where((p) {
@@ -367,7 +396,11 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
                 } else {
                   content = _posts.isEmpty
                       ? _EmptyState(onCreate: () => _openComposer(context))
-                      : _ProfileMediaList(posts: _posts);
+                      : _ProfileMediaList(
+                          posts: _posts,
+                          currentUserId: _currentUserId,
+                          onDelete: _deletePost,
+                        );
                 }
                 break;
               case _Tab.shuffle:
@@ -376,6 +409,8 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
                     : _ProfileMediaList(
                         posts: _repostEntries,
                         repostAuthors: _repostAuthors,
+                        currentUserId: _currentUserId,
+                        onDelete: _deletePost,
                       );
                 break;
               case _Tab.media:
@@ -385,7 +420,11 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
                 } else {
                   content = mediaPosts.isEmpty
                       ? _EmptyState(onCreate: () => _openComposer(context))
-                      : _ProfileMediaList(posts: mediaPosts);
+                      : _ProfileMediaList(
+                          posts: mediaPosts,
+                          currentUserId: _currentUserId,
+                          onDelete: _deletePost,
+                        );
                 }
                 break;
               case _Tab.replies:
@@ -637,9 +676,13 @@ class _ProfileMediaList extends StatelessWidget {
   const _ProfileMediaList({
     required this.posts,
     this.repostAuthors = const {},
+    this.currentUserId,
+    this.onDelete,
   });
   final List<model.Post> posts;
   final Map<String, String> repostAuthors;
+  final String? currentUserId;
+  final Future<void> Function(String postId)? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -648,6 +691,8 @@ class _ProfileMediaList extends StatelessWidget {
       itemBuilder: (_, i) => ProfilePostCard.fromModel(
         posts[i],
         repostedFromUsername: repostAuthors[posts[i].id],
+        currentUserId: currentUserId,
+        onDelete: onDelete,
       ),
       separatorBuilder: (_, __) => const SizedBox(height: 18),
       itemCount: posts.length,
@@ -670,6 +715,7 @@ class ProfileFeedMedia {
 
 class ProfilePost {
   final String id;
+  final String authorId;
   final String username;
   final String avatar; // url
   final String time;
@@ -685,6 +731,7 @@ class ProfilePost {
 
   ProfilePost({
     required this.id,
+    required this.authorId,
     required this.username,
     required this.avatar,
     required this.time,
@@ -700,10 +747,22 @@ class ProfilePost {
 }
 
 class ProfilePostCard extends StatefulWidget {
-  const ProfilePostCard({super.key, required this.post});
+  const ProfilePostCard({
+    super.key,
+    required this.post,
+    this.currentUserId,
+    this.onDelete,
+  });
   final ProfilePost post;
+  final String? currentUserId;
+  final Future<void> Function(String postId)? onDelete;
 
-  factory ProfilePostCard.fromModel(model.Post p, {String? repostedFromUsername}) {
+  factory ProfilePostCard.fromModel(
+    model.Post p, {
+    String? repostedFromUsername,
+    String? currentUserId,
+    Future<void> Function(String postId)? onDelete,
+  }) {
     final media = p.media.map((m) {
       final isNetwork = !m.isLocal;
       final path = m.isLocal ? (m.file?.path ?? '') : (m.url ?? '');
@@ -714,8 +773,11 @@ class ProfilePostCard extends StatefulWidget {
     }).toList();
 
     return ProfilePostCard(
+      currentUserId: currentUserId,
+      onDelete: onDelete,
       post: ProfilePost(
         id: p.id,
+        authorId: p.authorId,
         username: p.authorName,
         avatar: (p.authorAvatar.isNotEmpty ? p.authorAvatar : _defaultAvatar),
         time: p.timeText,
@@ -806,6 +868,8 @@ class ProfilePostCardState extends State<ProfilePostCard> {
                 IconButton(
                   icon: const Iconify(Mdi.dots_horizontal, size: 24),
                   onPressed: () {
+                    final isOwner = post.authorId.isNotEmpty &&
+                        post.authorId == (widget.currentUserId ?? '');
                     showModalBottomSheet(
                       context: context,
                       backgroundColor: Colors.white,
@@ -841,23 +905,35 @@ class ProfilePostCardState extends State<ProfilePostCard> {
                                 ),
                               ]),
                               _ProfileMenuSection(children: [
-                                _ProfileMenuItem(
-                                  iconify: Ph.bell_bold,
-                                  label: 'Mute',
-                                  onTap: () => Navigator.pop(context),
-                                ),
-                                _ProfileMenuItem(
-                                  iconify: Ph.prohibit_inset_bold,
-                                  label: 'Block',
-                                  danger: true,
-                                  onTap: () => Navigator.pop(context),
-                                ),
-                                _ProfileMenuItem(
-                                  iconify: Ph.flag_bold,
-                                  label: 'Report',
-                                  danger: true,
-                                  onTap: () => Navigator.pop(context),
-                                ),
+                                if (isOwner)
+                                  _ProfileMenuItem(
+                                    iconify: Ph.trash_simple_bold,
+                                    label: 'Delete',
+                                    danger: true,
+                                    onTap: () async {
+                                      Navigator.pop(context);
+                                      await widget.onDelete?.call(post.id);
+                                    },
+                                  ),
+                                if (!isOwner) ...[
+                                  _ProfileMenuItem(
+                                    iconify: Ph.bell_bold,
+                                    label: 'Mute',
+                                    onTap: () => Navigator.pop(context),
+                                  ),
+                                  _ProfileMenuItem(
+                                    iconify: Ph.prohibit_inset_bold,
+                                    label: 'Block',
+                                    danger: true,
+                                    onTap: () => Navigator.pop(context),
+                                  ),
+                                  _ProfileMenuItem(
+                                    iconify: Ph.flag_bold,
+                                    label: 'Report',
+                                    danger: true,
+                                    onTap: () => Navigator.pop(context),
+                                  ),
+                                ],
                               ]),
                             ],
                           ),
@@ -876,7 +952,7 @@ class ProfilePostCardState extends State<ProfilePostCard> {
               child: _CaptionText(text: post.caption),
             ),
 
-          if (post.media.isNotEmpty) _ProfilePostMedia(items: post.media),
+          if (post.media.isNotEmpty) _ProfilePostMedia(items: post.media, post: post),
 
           // Actions
           Padding(
@@ -955,14 +1031,49 @@ class ProfilePostCardState extends State<ProfilePostCard> {
 }
 
 class _ProfilePostMedia extends StatelessWidget {
-  const _ProfilePostMedia({required this.items});
+  const _ProfilePostMedia({required this.items, required this.post});
   final List<ProfileFeedMedia> items;
+  final ProfilePost post;
 
   static const double _paddingLeft = 96;
   static const double _paddingRight = 12;
   static const double _gap = 6;
   static const double _minH = 220;
   static const double _maxScreenFraction = 0.65;
+
+  void _openViewer(BuildContext context, int startIndex) {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        opaque: false,
+        barrierColor: Colors.black,
+        pageBuilder: (_, __, ___) =>
+            _ProfileMediaViewer(items: items, initialIndex: startIndex),
+      ),
+    );
+  }
+
+  void _openVideo(BuildContext context, ProfileFeedMedia m) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ReelsPage(
+          items: [
+            ReelItem(
+              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              videoUrl: m.isNetwork ? m.path : 'file://${m.path}',
+              caption: post.caption.isNotEmpty ? post.caption : 'Video',
+              music: 'Original Audio',
+              avatarUrl: post.avatar,
+              authorName: post.username,
+              likes: post.likeCount,
+              comments: post.commentCount,
+            ),
+          ],
+          initialIndex: 0,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -976,6 +1087,7 @@ class _ProfilePostMedia extends StatelessWidget {
         final h = naturalH.clamp(_minH, maxH);
 
         if (items.length == 1) {
+          final m = items.first;
           return Padding(
             padding: const EdgeInsets.only(
               left: _paddingLeft,
@@ -983,7 +1095,12 @@ class _ProfilePostMedia extends StatelessWidget {
             ),
             child: SizedBox(
               height: h,
-              child: _RoundedTile(m: items.first, aspect: baseAspect),
+              child: _RoundedTile(
+                m: m,
+                aspect: baseAspect,
+                onTap: () => _openViewer(context, 0),
+                onVideoTap: () => _openVideo(context, m),
+              ),
             ),
           );
         }
@@ -1002,9 +1119,23 @@ class _ProfilePostMedia extends StatelessWidget {
               height: rowH,
               child: Row(
                 children: [
-                  Expanded(child: _RoundedTile(m: items[0], aspect: aspect2)),
+                  Expanded(
+                    child: _RoundedTile(
+                      m: items[0],
+                      aspect: aspect2,
+                      onTap: () => _openViewer(context, 0),
+                      onVideoTap: () => _openVideo(context, items[0]),
+                    ),
+                  ),
                   const SizedBox(width: _gap),
-                  Expanded(child: _RoundedTile(m: items[1], aspect: aspect2)),
+                  Expanded(
+                    child: _RoundedTile(
+                      m: items[1],
+                      aspect: aspect2,
+                      onTap: () => _openViewer(context, 1),
+                      onVideoTap: () => _openVideo(context, items[1]),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1022,10 +1153,18 @@ class _ProfilePostMedia extends StatelessWidget {
             physics: const BouncingScrollPhysics(),
             itemCount: items.length,
             separatorBuilder: (_, __) => const SizedBox(width: _gap),
-            itemBuilder: (_, i) => SizedBox(
-              width: h * baseAspect,
-              child: _RoundedTile(m: items[i], aspect: baseAspect),
-            ),
+            itemBuilder: (_, i) {
+              final m = items[i];
+              return SizedBox(
+                width: h * baseAspect,
+                child: _RoundedTile(
+                  m: m,
+                  aspect: baseAspect,
+                  onTap: () => _openViewer(context, i),
+                  onVideoTap: () => _openVideo(context, m),
+                ),
+              );
+            },
           ),
         );
       },
@@ -1036,35 +1175,146 @@ class _ProfilePostMedia extends StatelessWidget {
 class _RoundedTile extends StatelessWidget {
   final ProfileFeedMedia m;
   final double aspect;
-  const _RoundedTile({required this.m, required this.aspect});
+  final VoidCallback? onTap;
+  final VoidCallback? onVideoTap;
+  const _RoundedTile({
+    required this.m,
+    required this.aspect,
+    this.onTap,
+    this.onVideoTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(14),
-      child: AspectRatio(
-        aspectRatio: aspect,
-        child: m.type == PMediaType.image
-            ? (m.isNetwork
-                  ? Image.network(
-                      m.path,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        debugPrint('PROFILE BROKEN IMAGE: ${m.path}');
-                        return Container(
-                          color: Colors.grey.shade200,
-                          child: const Center(
-                            child: Icon(
-                              Icons.broken_image,
-                              size: 50,
-                              color: Colors.grey,
-                            ),
-                          ),
-                        );
-                      },
-                    )
-                  : Image.file(File(m.path), fit: BoxFit.cover))
-            : _CoverVideo(path: m.path, isNetwork: m.isNetwork),
+      child: Material(
+        color: Colors.black12,
+        child: InkWell(
+          onTap: () {
+            if (m.type == PMediaType.video) {
+              onVideoTap?.call();
+            } else {
+              onTap?.call();
+            }
+          },
+          child: AspectRatio(
+            aspectRatio: aspect,
+            child: m.type == PMediaType.image
+                ? (m.isNetwork
+                      ? Image.network(
+                          m.path,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            debugPrint('PROFILE BROKEN IMAGE: ${m.path}');
+                            return Container(
+                              color: Colors.grey.shade200,
+                              child: const Center(
+                                child: Icon(
+                                  Icons.broken_image,
+                                  size: 50,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            );
+                          },
+                        )
+                      : Image.file(File(m.path), fit: BoxFit.cover))
+                : _CoverVideo(path: m.path, isNetwork: m.isNetwork, onTap: onVideoTap),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ======================= Fullscreen media viewer =======================
+class _ProfileMediaViewer extends StatefulWidget {
+  final List<ProfileFeedMedia> items;
+  final int initialIndex;
+  const _ProfileMediaViewer({required this.items, required this.initialIndex});
+  @override
+  State<_ProfileMediaViewer> createState() => _ProfileMediaViewerState();
+}
+
+class _ProfileMediaViewerState extends State<_ProfileMediaViewer> {
+  late final PageController _pc;
+  late int _index;
+
+  @override
+  void initState() {
+    super.initState();
+    _index = widget.initialIndex;
+    _pc = PageController(initialPage: _index);
+  }
+
+  @override
+  void dispose() {
+    _pc.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            PageView.builder(
+              controller: _pc,
+              onPageChanged: (i) => setState(() => _index = i),
+              itemCount: widget.items.length,
+              itemBuilder: (_, i) {
+                final item = widget.items[i];
+                if (item.type == PMediaType.image) {
+                  return Center(
+                    child: InteractiveViewer(
+                      minScale: 1,
+                      maxScale: 4,
+                      child: item.isNetwork
+                          ? Image.network(item.path, fit: BoxFit.contain)
+                          : Image.file(File(item.path), fit: BoxFit.contain),
+                    ),
+                  );
+                }
+                return Center(
+                  child: AspectRatio(
+                    aspectRatio: 16 / 9,
+                    child: _CoverVideo(path: item.path, isNetwork: item.isNetwork),
+                  ),
+                );
+              },
+            ),
+            Positioned(
+              top: 8,
+              left: 8,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ),
+            if (widget.items.length > 1)
+              Positioned(
+                bottom: 18,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${_index + 1}/${widget.items.length}',
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -1075,7 +1325,8 @@ class _RoundedTile extends StatelessWidget {
 class _CoverVideo extends StatefulWidget {
   final String path;
   final bool isNetwork;
-  const _CoverVideo({required this.path, required this.isNetwork});
+  final VoidCallback? onTap;
+  const _CoverVideo({required this.path, required this.isNetwork, this.onTap});
 
   @override
   State<_CoverVideo> createState() => _CoverVideoState();
@@ -1139,7 +1390,7 @@ class _CoverVideoState extends State<_CoverVideo> {
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              onTap: _toggle,
+              onTap: widget.onTap ?? _toggle,
               child: Center(
                 child: AnimatedOpacity(
                   opacity: _playing ? 0.0 : 1.0,

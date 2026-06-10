@@ -19,7 +19,7 @@ class CreateScreen extends StatefulWidget {
 }
 
 class _CreateScreenState extends State<CreateScreen> {
-  static const String _backendUrl = kBaseUrl;
+  static final String _backendUrl = kBaseUrl;
 
   final _firstController = TextEditingController();
   final _lastController = TextEditingController();
@@ -89,8 +89,9 @@ class _CreateScreenState extends State<CreateScreen> {
       return false;
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Failed to send code: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to send code: $e')));
       }
       return false;
     }
@@ -108,7 +109,10 @@ class _CreateScreenState extends State<CreateScreen> {
   }
 
   Future<void> _handleGoogle() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final user = await _svc.loginWithGoogle();
       final userId = await getCurrentUserId();
@@ -116,7 +120,8 @@ class _CreateScreenState extends State<CreateScreen> {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => ProfileUserScreen(userId: userId ?? user['id'].toString()),
+          builder: (_) =>
+              ProfileUserScreen(userId: userId ?? user['id'].toString()),
         ),
       );
     } on ApiException catch (e) {
@@ -135,14 +140,22 @@ class _CreateScreenState extends State<CreateScreen> {
     final pass = _passwordController.text;
 
     if (email.isEmpty || pass.length < 6) {
-      setState(() => _error = 'Please enter a valid email and password (6+ chars).');
+      setState(
+        () => _error = 'Please enter a valid email and password (6+ chars).',
+      );
       return;
     }
 
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
 
     try {
-      final displayName = [first, last].where((s) => s.isNotEmpty).join(' ').trim();
+      final displayName = [
+        first,
+        last,
+      ].where((s) => s.isNotEmpty).join(' ').trim();
       final user = await _svc.register(
         email: email,
         password: pass,
@@ -159,7 +172,8 @@ class _CreateScreenState extends State<CreateScreen> {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => ProfileUserScreen(userId: userId ?? user['id'].toString()),
+          builder: (_) =>
+              ProfileUserScreen(userId: userId ?? user['id'].toString()),
         ),
       );
     } on ApiException catch (e) {

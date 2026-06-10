@@ -1,12 +1,19 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
-/// Base URL for the Spring Boot backend.
-/// Change to your production URL when deploying.
-const String kBaseUrl = 'http://10.0.2.2:8080'; // Android emulator → localhost
-const String _baseUrl = kBaseUrl;
+String get kBaseUrl => _baseUrl;
+
+String get _baseUrl {
+  if (kIsWeb) return 'http://localhost:8080';
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    return 'http://10.0.2.2:8080'; // Android emulator → host localhost
+  }
+  return 'http://localhost:8080'; // iOS simulator / macOS / Windows
+}
 
 final _storage = const FlutterSecureStorage();
 
@@ -162,8 +169,9 @@ Map<String, dynamic> expectJson(http.Response r) {
     return {};
   }
   final body = jsonDecode(r.body) as Map<String, dynamic>;
-  if (r.statusCode >= 400)
+  if (r.statusCode >= 400) {
     throw ApiException(r.statusCode, body['error'] ?? 'Request failed');
+  }
   return body;
 }
 

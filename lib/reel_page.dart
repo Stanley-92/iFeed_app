@@ -416,8 +416,12 @@ class _BottomMeta extends StatelessWidget {
               CircleAvatar(
                 radius: 20,
                 backgroundColor: Colors.grey.shade300,
-                foregroundImage: item.avatarUrl.isNotEmpty ? NetworkImage(item.avatarUrl) : null,
-                onForegroundImageError: item.avatarUrl.isNotEmpty ? (_, __) {} : null,
+                foregroundImage: item.avatarUrl.isNotEmpty
+                    ? NetworkImage(item.avatarUrl)
+                    : null,
+                onForegroundImageError: item.avatarUrl.isNotEmpty
+                    ? (_, __) {}
+                    : null,
                 child: const Icon(Icons.person, size: 18, color: Colors.white),
               ),
               const SizedBox(width: 8),

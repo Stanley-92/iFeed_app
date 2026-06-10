@@ -746,8 +746,8 @@ class _CommentNode {
   final String text;
   final bool isReply;
   final List<_CommentNode> replies;
-  bool liked;
-  bool expanded;
+  bool liked = false;
+  bool expanded = false;
 
   _CommentNode({
     required this.id,
@@ -757,8 +757,6 @@ class _CommentNode {
     required this.text,
     this.isReply = false,
     List<_CommentNode>? replies,
-    this.liked = false,
-    this.expanded = true,
   }) : replies = replies ?? [];
 
   factory _CommentNode.fromPublic(Comment c) => _CommentNode(
@@ -795,7 +793,6 @@ class _CommentTile extends StatelessWidget {
     required this.onReply,
     required this.onLikeToggle,
     required this.onToggleCollapse,
-    super.key,
   });
 
   @override

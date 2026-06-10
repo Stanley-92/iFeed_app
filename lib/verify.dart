@@ -15,12 +15,12 @@ class VerifyScreen extends StatefulWidget {
   /// Base URL only (no path).
   final String backendUrl;
 
-  const VerifyScreen({
+  VerifyScreen({
     super.key,
     required this.uid,
     required this.email,
-    this.backendUrl = kBaseUrl,
-  });
+    String? backendUrl,
+  }) : backendUrl = backendUrl ?? kBaseUrl;
 
   @override
   VerifyScreenState createState() => VerifyScreenState();
@@ -41,8 +41,12 @@ class VerifyScreenState extends State<VerifyScreen> {
 
   @override
   void dispose() {
-    for (final c in _ctls) c.dispose();
-    for (final n in _nodes) n.dispose();
+    for (final c in _ctls) {
+      c.dispose();
+    }
+    for (final n in _nodes) {
+      n.dispose();
+    }
     super.dispose();
   }
 

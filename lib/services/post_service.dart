@@ -29,6 +29,8 @@ class PostService {
 
   Future<void> deletePost(String postId) async {
     final r = await apiDelete('/posts/$postId');
-    expectJson(r);
+    if (r.statusCode >= 400) {
+      throw ApiException(r.statusCode, 'Failed to delete post (${r.statusCode})');
+    }
   }
 }

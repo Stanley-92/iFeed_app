@@ -401,7 +401,6 @@ class _FormLabel extends StatelessWidget {
     this.text, {
     this.fontSize = 12,
     this.color = Colors.black54,
-    super.key,
   });
 
   final String text;
