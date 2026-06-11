@@ -1372,6 +1372,7 @@ class _PostCard extends StatelessWidget {
               reels: reels,
               currentUserName: currentUserName,
               currentUserAvatar: currentUserAvatar,
+              onDoubleTap: onLike,
             ),
 
           // Actions Icon Row like comment share
@@ -1637,11 +1638,13 @@ class _PostMedia extends StatelessWidget {
   final List<ReelItem> reels;
   final String currentUserName;
   final String currentUserAvatar;
+  final VoidCallback? onDoubleTap;
   const _PostMedia({
     required this.post,
     required this.reels,
     required this.currentUserName,
     required this.currentUserAvatar,
+    this.onDoubleTap,
   });
 
   static const double _side = 100.0;
@@ -1682,6 +1685,7 @@ class _PostMedia extends StatelessWidget {
                 m: m,
                 aspect: baseAspect,
                 onTap: () => _openViewerPaged(context, 0),
+                onDoubleTap: onDoubleTap,
                 onVideoTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -1726,6 +1730,7 @@ class _PostMedia extends StatelessWidget {
                   m: m,
                   aspect: baseAspect,
                   onTap: () => _openViewerPaged(context, i),
+                  onDoubleTap: onDoubleTap,
                   onVideoTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -1759,58 +1764,116 @@ class _PostMedia extends StatelessWidget {
   }
 }
 
-class _RoundedTile extends StatelessWidget {
+class _RoundedTile extends StatefulWidget {
   final _FeedMedia m;
   final double aspect;
-  final VoidCallback? onTap; // open fullscreen viewer
-  final VoidCallback? onVideoTap; // open popup for video
+  final VoidCallback? onTap;
+  final VoidCallback? onVideoTap;
+  final VoidCallback? onDoubleTap;
 
   const _RoundedTile({
     required this.m,
     required this.aspect,
     this.onTap,
     this.onVideoTap,
+    this.onDoubleTap,
   });
+
+  @override
+  State<_RoundedTile> createState() => _RoundedTileState();
+}
+
+class _RoundedTileState extends State<_RoundedTile>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _scale;
+  late final Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 750),
+    );
+    _scale = TweenSequence([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.3), weight: 25),
+      TweenSequenceItem(tween: Tween(begin: 1.3, end: 1.0), weight: 25),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 30),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 20),
+    ]).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
+    _opacity = TweenSequence([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 10),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 60),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 30),
+    ]).animate(_ctrl);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _handleDoubleTap() {
+    _ctrl.forward(from: 0);
+    widget.onDoubleTap?.call();
+  }
 
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(14),
-      child: Material(
-        color: Colors.black12,
-        child: InkWell(
-          onTap: () {
-            if (m.type == MediaType.video) {
-              if (onVideoTap != null) onVideoTap!();
-            } else {
-              if (onTap != null) onTap!();
-            }
-          },
-          child: AspectRatio(
-            aspectRatio: aspect,
-            child: (m.type == MediaType.image)
-                ? (m.isNetwork
-                      ? Image.network(
-                          m.path,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            print('BROKEN IMAGE: ${m.path}');
-                            return const SizedBox.shrink();
-                          },
-                        )
-                      : Image.file(
-                          File(m.path),
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return const SizedBox.shrink();
-                          },
-                        ))
-                : _CoverVideo(
-                    path: m.path,
-                    isNetwork: m.isNetwork,
-                    onTap: onVideoTap,
+      child: GestureDetector(
+        onTap: () {
+          if (widget.m.type == MediaType.video) {
+            widget.onVideoTap?.call();
+          } else {
+            widget.onTap?.call();
+          }
+        },
+        onDoubleTap: _handleDoubleTap,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            AspectRatio(
+              aspectRatio: widget.aspect,
+              child: widget.m.type == MediaType.image
+                  ? (widget.m.isNetwork
+                        ? Image.network(
+                            widget.m.path,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) =>
+                                const SizedBox.shrink(),
+                          )
+                        : Image.file(
+                            File(widget.m.path),
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) =>
+                                const SizedBox.shrink(),
+                          ))
+                  : _CoverVideo(
+                      path: widget.m.path,
+                      isNetwork: widget.m.isNetwork,
+                      onTap: widget.onVideoTap,
+                    ),
+            ),
+            AnimatedBuilder(
+              animation: _ctrl,
+              builder: (_, __) => Opacity(
+                opacity: _opacity.value,
+                child: Transform.scale(
+                  scale: _scale.value,
+                  child: const Icon(
+                    Icons.favorite,
+                    color: Colors.white,
+                    size: 90,
+                    shadows: [Shadow(color: Colors.black38, blurRadius: 12)],
                   ),
-          ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
