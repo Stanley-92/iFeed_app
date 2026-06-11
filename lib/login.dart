@@ -32,7 +32,10 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
 
     try {
       await _svc.login(email: email, password: pass);
@@ -51,7 +54,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _loginWithGoogle() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       await _svc.loginWithGoogle();
       if (!mounted) return;
@@ -101,7 +107,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       width: 2,
                     ),
                   ),
-                  child: const Iconify(Uil.comment, size: 38, color: Colors.white),
+                  child: const Iconify(
+                    Uil.comment,
+                    size: 38,
+                    color: Colors.white,
+                  ),
                 ),
 
                 const SizedBox(height: 30),
@@ -110,7 +120,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   keyboardType: TextInputType.emailAddress,
                   decoration: InputDecoration(
                     labelText: 'Email',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -119,7 +131,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   obscureText: true,
                   decoration: InputDecoration(
                     labelText: 'Password',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -129,7 +143,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   height: 48,
                   child: ElevatedButton(
                     onPressed: _loading ? null : _loginWithEmail,
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                    ),
                     child: Text(_loading ? 'Signing in…' : 'Login'),
                   ),
                 ),
@@ -139,7 +155,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: TextButton(
                     onPressed: () => Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
+                      MaterialPageRoute(
+                        builder: (_) => const ForgotPasswordScreen(),
+                      ),
                     ),
                     child: const Text('Forgot your Password?'),
                   ),
@@ -168,7 +186,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         ? null
                         : () => Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (_) => const CreateScreen()),
+                            MaterialPageRoute(
+                              builder: (_) => const CreateScreen(),
+                            ),
                           ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color.fromARGB(255, 24, 90, 231),
