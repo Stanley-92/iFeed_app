@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:iconify_flutter/iconify_flutter.dart';
 import 'package:iconify_flutter/icons/uil.dart';
+import 'package:colorful_iconify_flutter/icons/logos.dart';
 import 'create.dart';
 import 'Mainfeed.dart';
 import 'forgort_password.dart';
@@ -98,15 +99,17 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 Container(
                   padding: const EdgeInsets.all(10),
+                  width: 64,
+                  height: 64,
                   decoration: BoxDecoration(
                     shape: BoxShape.rectangle,
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(16),
                     color: const Color.fromARGB(255, 3, 240, 3),
                     border: Border.all(color: Colors.transparent),
                   ),
                   child: const Iconify(
                     Uil.comment,
-                    size: 45,
+                    size: 55,
                     color: Colors.white,
                   ),
                 ),
@@ -167,9 +170,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 SizedBox(
                   width: double.infinity,
                   height: 48,
-                  child: OutlinedButton(
+                  child: OutlinedButton.icon(
                     onPressed: _loading ? null : _loginWithGoogle,
-                    child: const Text('Continue with Google'),
+                    icon: const Iconify(Logos.google_icon, size: 20),
+                    label: const Text('Continue with Google'),
                   ),
                 ),
 
@@ -189,6 +193,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color.fromARGB(255, 24, 90, 231),
+                      foregroundColor: Colors.white,
                     ),
                     child: const Text('Create Account'),
                   ),

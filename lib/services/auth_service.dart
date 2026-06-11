@@ -31,11 +31,15 @@ class AuthService {
     required String email,
     required String password,
     String? displayName,
+    String? dateOfBirth,
+    String? gender,
   }) async {
     final r = await apiPost('/auth/register', {
       'email': email,
       'password': password,
       if (displayName != null) 'displayName': displayName,
+      if (dateOfBirth != null) 'dateOfBirth': dateOfBirth,
+      if (gender != null) 'gender': gender,
     });
     final body = expectJson(r);
     await saveTokens(

@@ -1,6 +1,7 @@
 // lib/create.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:colorful_iconify_flutter/icons/logos.dart';
 import 'package:iconify_flutter/iconify_flutter.dart';
 import 'package:iconify_flutter/icons/uil.dart';
@@ -21,54 +22,49 @@ class CreateScreen extends StatefulWidget {
 class _CreateScreenState extends State<CreateScreen> {
   static final String _backendUrl = kBaseUrl;
 
+  final _formKey = GlobalKey<FormState>();
+
   final _firstController = TextEditingController();
   final _lastController = TextEditingController();
+  final _dayController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
-  late String _day;
-  late String _month;
-  late String _year;
-  String _gender = 'Female';
+  String? _selectedMonth;
+  String? _selectedYear;
+  String _selectedGender = 'Female';
+  bool _obscurePassword = true;
   bool _loading = false;
   String? _error;
 
   final _svc = AuthService();
 
-  List<String> get _days =>
-      List.generate(31, (i) => (i + 1).toString().padLeft(2, '0'));
-  List<String> get _months =>
-      List.generate(12, (i) => (i + 1).toString().padLeft(2, '0'));
-  List<String> get _years {
-    final y = DateTime.now().year;
-    return List.generate(100, (i) => (y - i).toString());
-  }
+  static const List<String> _months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
 
-  @override
-  void initState() {
-    super.initState();
-    final now = DateTime.now();
-    _day = now.day.toString().padLeft(2, '0');
-    _month = now.month.toString().padLeft(2, '0');
-    _year = now.year.toString();
-  }
-
-  InputDecoration _boxDecoration(String hint) => InputDecoration(
-    hintText: hint,
-    hintStyle: const TextStyle(fontSize: 13),
-    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-    enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(6),
-      borderSide: const BorderSide(color: Color(0xFFCCCEF9), width: 2),
-    ),
-    focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(6),
-      borderSide: const BorderSide(color: Color(0xFF5670FF), width: 2),
-    ),
+  static final List<String> _years = List.generate(
+    DateTime.now().year - 1919,
+    (i) => (DateTime.now().year - i).toString(),
   );
 
-  Widget _dobBox({required Widget child, double width = 112}) =>
-      SizedBox(width: width, height: 40, child: child);
+  static const List<String> _genders = ['Female', 'Male', 'Other'];
+
+  static const Color _primaryColor = Color(0xFF4F46E5);
+  static const Color _greenColor = Color(0xFF22C55E);
+
+  // ── Auth methods (unchanged) ──────────────────────────────────────────────
 
   Future<bool> _sendOtpToEmail({required String email}) async {
     try {
@@ -134,16 +130,21 @@ class _CreateScreenState extends State<CreateScreen> {
   }
 
   Future<void> _handleCreateEmail() async {
+    if (!_formKey.currentState!.validate()) return;
+
     final first = _firstController.text.trim();
     final last = _lastController.text.trim();
     final email = _emailController.text.trim();
     final pass = _passwordController.text;
 
-    if (email.isEmpty || pass.length < 6) {
-      setState(
-        () => _error = 'Please enter a valid email and password (6+ chars).',
-      );
-      return;
+    // Build ISO-8601 date string when all DOB parts are present
+    String? dateOfBirth;
+    final day = _dayController.text.trim();
+    if (day.isNotEmpty && _selectedMonth != null && _selectedYear != null) {
+      final monthNum = (_months.indexOf(_selectedMonth!) + 1)
+          .toString()
+          .padLeft(2, '0');
+      dateOfBirth = '${_selectedYear!}-$monthNum-${day.padLeft(2, '0')}';
     }
 
     setState(() {
@@ -160,6 +161,8 @@ class _CreateScreenState extends State<CreateScreen> {
         email: email,
         password: pass,
         displayName: displayName.isNotEmpty ? displayName : null,
+        dateOfBirth: dateOfBirth,
+        gender: _selectedGender,
       );
       final userId = await getCurrentUserId();
 
@@ -189,250 +192,421 @@ class _CreateScreenState extends State<CreateScreen> {
   void dispose() {
     _firstController.dispose();
     _lastController.dispose();
+    _dayController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
+  // ── Build ─────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 500),
-          child: Container(
-            margin: const EdgeInsets.symmetric(vertical: 24, horizontal: 12),
-            padding: const EdgeInsets.symmetric(vertical: 24),
-            decoration: const BoxDecoration(color: Colors.white),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          child: Form(
+            key: _formKey,
             child: Column(
-              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Logo
-                Container(
-                  padding: const EdgeInsets.all(15),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    color: const Color.fromARGB(255, 36, 231, 19),
-                    border: Border.all(
-                      color: const Color.fromARGB(255, 36, 231, 19),
-                      width: 2,
-                    ),
-                  ),
-                  child: const Iconify(
-                    Uil.comment,
-                    size: 38,
-                    color: Colors.white,
-                  ),
-                ),
+                _buildLogo(),
+                const SizedBox(height: 24),
+                _buildGoogleButton(),
                 const SizedBox(height: 20),
-
-                // Google button
-                OutlinedButton.icon(
-                  onPressed: _loading ? null : _handleGoogle,
-                  icon: const Iconify(Logos.google_icon, size: 20),
-                  label: Text(
-                    _loading ? 'Signing in…' : 'Continue With Google',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF2C2C2C),
-                    side: const BorderSide(color: Color(0xFFCCD3FF)),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 10,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    backgroundColor: Colors.white,
-                  ),
-                ),
-
-                const SizedBox(height: 48),
-
-                // Inner form card
-                Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: const Color(0xFFCDCDCD)),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Name
-                      const Text(
-                        'Name',
-                        style: TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _firstController,
-                              decoration: _boxDecoration('First name'),
-                            ),
-                          ),
-                          const SizedBox(width: 18),
-                          Expanded(
-                            child: TextField(
-                              controller: _lastController,
-                              decoration: _boxDecoration('Last name'),
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 18),
-
-                      // DOB
-                      const Text(
-                        'Date of Birth',
-                        style: TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          _dobBox(
-                            child: DropdownButtonFormField<String>(
-                              value: _days.contains(_day) ? _day : null,
-                              items: _days
-                                  .map(
-                                    (d) => DropdownMenuItem(
-                                      value: d,
-                                      child: Text(d),
-                                    ),
-                                  )
-                                  .toList(),
-                              onChanged: (v) =>
-                                  setState(() => _day = v ?? _day),
-                              decoration: _boxDecoration('DD'),
-                            ),
-                          ),
-                          const SizedBox(width: 20),
-                          _dobBox(
-                            child: DropdownButtonFormField<String>(
-                              value: _months.contains(_month) ? _month : null,
-                              items: _months
-                                  .map(
-                                    (m) => DropdownMenuItem(
-                                      value: m,
-                                      child: Text(m),
-                                    ),
-                                  )
-                                  .toList(),
-                              onChanged: (v) =>
-                                  setState(() => _month = v ?? _month),
-                              decoration: _boxDecoration('MM'),
-                            ),
-                          ),
-                          const SizedBox(width: 20),
-                          _dobBox(
-                            child: DropdownButtonFormField<String>(
-                              value: _years.contains(_year) ? _year : null,
-                              items: _years
-                                  .map(
-                                    (y) => DropdownMenuItem(
-                                      value: y,
-                                      child: Text(y),
-                                    ),
-                                  )
-                                  .toList(),
-                              onChanged: (v) =>
-                                  setState(() => _year = v ?? _year),
-                              decoration: _boxDecoration('YYYY'),
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 18),
-
-                      // Gender
-                      const Text(
-                        'Gender',
-                        style: TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      Wrap(
-                        spacing: 28,
-                        children: [
-                          ChoiceChip(
-                            label: const Text('Female'),
-                            selected: _gender == 'Female',
-                            onSelected: (_) =>
-                                setState(() => _gender = 'Female'),
-                          ),
-                          ChoiceChip(
-                            label: const Text('Male'),
-                            selected: _gender == 'Male',
-                            onSelected: (_) => setState(() => _gender = 'Male'),
-                          ),
-                          ChoiceChip(
-                            label: const Text('Other'),
-                            selected: _gender == 'Other',
-                            onSelected: (_) =>
-                                setState(() => _gender = 'Other'),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 14),
-
-                      // Email
-                      TextField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        decoration: _boxDecoration('Email'),
-                      ),
-                      const SizedBox(height: 12),
-
-                      // Password
-                      TextField(
-                        controller: _passwordController,
-                        obscureText: true,
-                        decoration: _boxDecoration('New password'),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Create button
-                      Center(
-                        child: OutlinedButton(
-                          onPressed: _loading ? null : _handleCreateEmail,
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: Color(0xFF2E49FF)),
-                          ),
-                          child: Text(
-                            _loading ? 'Creating…' : 'Create Your Account',
-                          ),
-                        ),
-                      ),
-
-                      if (_error != null) ...[
-                        const SizedBox(height: 10),
-                        Text(
-                          _error!,
-                          style: const TextStyle(color: Colors.red),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
+                _buildDivider(),
+                const SizedBox(height: 20),
+                _buildSectionLabel('Name'),
+                const SizedBox(height: 8),
+                _buildNameRow(),
+                const SizedBox(height: 16),
+                _buildSectionLabel('Date of Birth'),
+                const SizedBox(height: 8),
+                _buildDobRow(),
+                const SizedBox(height: 16),
+                _buildSectionLabel('Gender'),
+                const SizedBox(height: 8),
+                _buildGenderRow(),
+                const SizedBox(height: 16),
+                _buildEmailField(),
+                const SizedBox(height: 10),
+                _buildPasswordField(),
+                const SizedBox(height: 24),
+                _buildSubmitButton(),
+                if (_error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(_error!, style: const TextStyle(color: Colors.red)),
+                ],
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  // ── UI helpers ────────────────────────────────────────────────────────────
+
+  Widget _buildLogo() {
+    return Center(
+      child: Container(
+        width: 64,
+        height: 64,
+        decoration: BoxDecoration(
+          color: const Color.fromARGB(255, 3, 240, 3),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Center(
+          child: Iconify(Uil.comment, size: 55, color: Colors.white),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGoogleButton() {
+    return OutlinedButton(
+      onPressed: _loading ? null : _handleGoogle,
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(double.infinity, 48),
+        side: const BorderSide(color: Color(0xFFD1D5DB)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        foregroundColor: Colors.black87,
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Iconify(Logos.google_icon, size: 20),
+          const SizedBox(width: 10),
+          Text(
+            _loading ? 'Signing in…' : 'Continue with Google',
+            style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDivider() {
+    return Row(
+      children: [
+        const Expanded(child: Divider(color: Color(0xFFE5E7EB))),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Text(
+            'or sign up with email',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+          ),
+        ),
+        const Expanded(child: Divider(color: Color(0xFFE5E7EB))),
+      ],
+    );
+  }
+
+  Widget _buildSectionLabel(String label) {
+    return Text(
+      label,
+      style: const TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        color: Colors.black54,
+      ),
+    );
+  }
+
+  Widget _buildNameRow() {
+    return Row(
+      children: [
+        Expanded(
+          child: _buildTextField(
+            controller: _firstController,
+            hint: 'First name',
+            validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _buildTextField(
+            controller: _lastController,
+            hint: 'Last name',
+            validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDobRow() {
+    return Row(
+      children: [
+        SizedBox(
+          width: 64,
+          child: _buildTextField(
+            controller: _dayController,
+            hint: 'DD',
+            keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(2),
+            ],
+            textAlign: TextAlign.center,
+            validator: (v) {
+              if (v == null || v.isEmpty) return 'Day';
+              final d = int.tryParse(v);
+              if (d == null || d < 1 || d > 31) return 'Invalid';
+              return null;
+            },
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _buildDropdown(
+            value: _selectedMonth,
+            hint: 'Month',
+            items: _months,
+            onChanged: (v) => setState(() => _selectedMonth = v),
+            validator: (v) => v == null ? 'Required' : null,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _buildDropdown(
+            value: _selectedYear,
+            hint: 'Year',
+            items: _years,
+            onChanged: (v) => setState(() => _selectedYear = v),
+            validator: (v) => v == null ? 'Required' : null,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGenderRow() {
+    return Row(
+      children: _genders.map((gender) {
+        final isActive = _selectedGender == gender;
+        return Expanded(
+          child: GestureDetector(
+            onTap: () => setState(() => _selectedGender = gender),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              margin: EdgeInsets.only(right: gender != _genders.last ? 8 : 0),
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              decoration: BoxDecoration(
+                color: isActive ? const Color(0xFFEEF2FF) : Colors.white,
+                border: Border.all(
+                  color: isActive ? _primaryColor : const Color(0xFFD1D5DB),
+                  width: isActive ? 1.5 : 0.5,
+                ),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                gender,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: isActive ? _primaryColor : Colors.black54,
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildEmailField() {
+    return _buildTextField(
+      controller: _emailController,
+      hint: 'Email or phone number',
+      keyboardType: TextInputType.emailAddress,
+      validator: (v) => (v == null || v.isEmpty) ? 'Email is required' : null,
+    );
+  }
+
+  Widget _buildPasswordField() {
+    return TextFormField(
+      controller: _passwordController,
+      obscureText: _obscurePassword,
+      style: const TextStyle(fontSize: 14),
+      decoration: InputDecoration(
+        hintText: 'New password',
+        hintStyle: const TextStyle(color: Colors.black38, fontSize: 14),
+        suffixIcon: IconButton(
+          icon: Icon(
+            _obscurePassword
+                ? Icons.visibility_off_outlined
+                : Icons.visibility_outlined,
+            size: 20,
+            color: Colors.grey,
+          ),
+          onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Color(0xFFD1D5DB), width: 0.5),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Color(0xFFD1D5DB), width: 0.5),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: _primaryColor, width: 1.2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Colors.red, width: 0.8),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Colors.red, width: 1.2),
+        ),
+      ),
+      validator: (v) {
+        if (v == null || v.isEmpty) return 'Password is required';
+        if (v.length < 6) return 'Minimum 6 characters';
+        return null;
+      },
+    );
+  }
+
+  Widget _buildSubmitButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 50,
+      child: ElevatedButton(
+        onPressed: _loading ? null : _handleCreateEmail,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _primaryColor,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: _primaryColor.withValues(alpha: 0.6),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          elevation: 0,
+        ),
+        child: _loading
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2,
+                ),
+              )
+            : const Text(
+                'Create your account',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+              ),
+      ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String hint,
+    TextInputType keyboardType = TextInputType.text,
+    List<TextInputFormatter>? inputFormatters,
+    TextAlign textAlign = TextAlign.start,
+    String? Function(String?)? validator,
+  }) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboardType,
+      inputFormatters: inputFormatters,
+      textAlign: textAlign,
+      style: const TextStyle(fontSize: 14),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: const TextStyle(color: Colors.black38, fontSize: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Color(0xFFD1D5DB), width: 0.5),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Color(0xFFD1D5DB), width: 0.5),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Colors.red, width: 0.8),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Colors.red, width: 1.2),
+        ),
+      ),
+      validator: validator,
+    );
+  }
+
+  Widget _buildDropdown({
+    required String? value,
+    required String hint,
+    required List<String> items,
+    required void Function(String?) onChanged,
+    String? Function(String?)? validator,
+  }) {
+    return DropdownButtonFormField<String>(
+      value: value,
+      hint: Text(
+        hint,
+        style: const TextStyle(color: Colors.black38, fontSize: 13),
+      ),
+      isExpanded: true,
+      icon: const Icon(
+        Icons.keyboard_arrow_down_rounded,
+        size: 18,
+        color: Colors.grey,
+      ),
+      decoration: InputDecoration(
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 12,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Color(0xFFD1D5DB), width: 0.5),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Color(0xFFD1D5DB), width: 0.5),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Color(0xFF4F46E5), width: 1.2),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: Colors.red, width: 0.8),
+        ),
+      ),
+      items: items
+          .map(
+            (e) => DropdownMenuItem(
+              value: e,
+              child: Text(e, style: const TextStyle(fontSize: 13)),
+            ),
+          )
+          .toList(),
+      onChanged: onChanged,
+      validator: validator,
     );
   }
 }
