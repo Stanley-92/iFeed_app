@@ -97,19 +97,16 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 30),
 
                 Container(
-                  padding: const EdgeInsets.all(15),
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     shape: BoxShape.rectangle,
-                    borderRadius: BorderRadius.circular(12),
-                    color: const Color.fromARGB(255, 36, 231, 19),
-                    border: Border.all(
-                      color: const Color.fromARGB(255, 36, 231, 19),
-                      width: 2,
-                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    color: const Color.fromARGB(255, 3, 240, 3),
+                    border: Border.all(color: Colors.transparent),
                   ),
                   child: const Iconify(
                     Uil.comment,
-                    size: 38,
+                    size: 45,
                     color: Colors.white,
                   ),
                 ),
