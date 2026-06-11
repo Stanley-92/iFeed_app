@@ -72,6 +72,10 @@ class Post {
   final List<PostMedia> media;
   List<Comment> comments;
 
+  int likeCount;
+  int commentCount;
+  bool isLiked;
+
   Post({
     required this.id,
     this.authorId = '',
@@ -81,5 +85,8 @@ class Post {
     required this.caption,
     required this.media,
     List<Comment>? comments,
+    this.likeCount = 0,
+    this.commentCount = 0,
+    this.isLiked = false,
   }) : comments = comments ?? [];
 }

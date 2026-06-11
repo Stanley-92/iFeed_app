@@ -18,6 +18,8 @@ import 'package:iconify_flutter/icons/teenyicons.dart';
 import 'package:video_player/video_player.dart';
 
 import 'services/post_service.dart';
+import 'services/like_service.dart';
+import 'comments_page.dart' as reply;
 import 'setting_page.dart';
 import 'share_popup.dart';
 import 'edit_page.dart' show EditProfilePage, ProfileEditResult;
@@ -170,10 +172,29 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
       authorId: (data['authorId'] ?? data['userId'] ?? '').toString(),
       authorName: (data['authorName'] ?? 'User').toString(),
       authorAvatar: (data['authorAvatar'] ?? '').toString(),
-      timeText: 'just now',
+      timeText: _relativeTime(
+        (data['createdAt'] ?? data['updatedAt'])?.toString(),
+      ),
       caption: (data['caption'] ?? '').toString(),
       media: media,
+      likeCount: (data['likeCount'] as num?)?.toInt() ?? 0,
+      commentCount: (data['commentCount'] as num?)?.toInt() ?? 0,
+      isLiked: data['isLiked'] == true,
     );
+  }
+
+  String _relativeTime(String? iso) {
+    if (iso == null || iso.isEmpty) return 'just now';
+    final dt = DateTime.tryParse(iso);
+    if (dt == null) return 'just now';
+    final diff = DateTime.now().difference(dt.toLocal());
+    if (diff.inSeconds < 60) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    if (diff.inDays < 30) return '${(diff.inDays / 7).floor()}w ago';
+    if (diff.inDays < 365) return '${(diff.inDays / 30).floor()}mo ago';
+    return '${(diff.inDays / 365).floor()}y ago';
   }
 
   Future<void> _loadCache() async {
@@ -808,6 +829,9 @@ class ProfilePostCard extends StatefulWidget {
         caption: p.caption,
         media: media,
         repostedFromUsername: repostedFromUsername,
+        likeCount: p.likeCount,
+        commentCount: p.commentCount,
+        isLiked: p.isLiked,
       ),
     );
   }
@@ -826,6 +850,72 @@ class ProfilePostCardState extends State<ProfilePostCard> {
   ImageProvider? _avatarProvider(String avatar) {
     if (avatar.isEmpty) return null;
     return NetworkImage(avatar);
+  }
+
+  Future<void> _handleLike() async {
+    final post = widget.post;
+    if (!post.isLiked) {
+      setState(() {
+        post.isLiked = true;
+        post.likeCount++;
+      });
+      try {
+        await LikeService().likePost(post.id);
+      } catch (_) {
+        setState(() {
+          post.isLiked = false;
+          post.likeCount--;
+        });
+      }
+    } else {
+      setState(() {
+        post.isLiked = false;
+        post.likeCount--;
+      });
+      try {
+        await LikeService().unlikePost(post.id);
+      } catch (_) {
+        setState(() {
+          post.isLiked = true;
+          post.likeCount++;
+        });
+      }
+    }
+  }
+
+  Future<void> _openComments() async {
+    final post = widget.post;
+    MyProfile? me;
+    try {
+      me = await fetchMyProfile();
+    } catch (_) {}
+    if (!mounted) return;
+    await Navigator.push<List<reply.Comment>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => reply.CommentsPage(
+          postId: post.id,
+          postAuthorName: post.username,
+          postAuthorAvatar: post.avatar,
+          postTimeText: post.time,
+          postText: post.caption,
+          postMedia: post.media
+              .map(
+                (m) => m.isNetwork
+                    ? (m.type == PMediaType.video
+                          ? reply.PostMedia.video(m.path)
+                          : reply.PostMedia.image(m.path))
+                    : (m.type == PMediaType.video
+                          ? reply.PostMedia.videoFile(File(m.path))
+                          : reply.PostMedia.imageFile(File(m.path))),
+              )
+              .toList(),
+          initialComments: const [],
+          currentUserName: me?.displayName ?? '',
+          currentUserAvatar: me?.photoURL ?? '',
+        ),
+      ),
+    );
   }
 
   @override
@@ -991,10 +1081,9 @@ class ProfilePostCardState extends State<ProfilePostCard> {
             _ProfilePostMedia(
               items: post.media,
               post: post,
-              onDoubleTap: () => setState(() {
-                post.isLiked = !post.isLiked;
-                post.isLiked ? post.likeCount++ : post.likeCount--;
-              }),
+              onLike: _handleLike,
+              onComment: _openComments,
+              onShare: () {},
             ),
 
           // Actions
@@ -1008,10 +1097,7 @@ class ProfilePostCardState extends State<ProfilePostCard> {
                     size: 24,
                     color: post.isLiked ? Colors.red : null,
                   ),
-                  onPressed: () => setState(() {
-                    post.isLiked = !post.isLiked;
-                    post.isLiked ? post.likeCount++ : post.likeCount--;
-                  }),
+                  onPressed: _handleLike,
                 ),
                 if (post.likeCount > 0)
                   Padding(
@@ -1026,7 +1112,7 @@ class ProfilePostCardState extends State<ProfilePostCard> {
                   ),
                 IconButton(
                   icon: const Iconify(Uil.comment, size: 24),
-                  onPressed: () {},
+                  onPressed: _openComments,
                 ),
                 if (post.commentCount > 0)
                   Padding(
@@ -1077,11 +1163,15 @@ class _ProfilePostMedia extends StatelessWidget {
   const _ProfilePostMedia({
     required this.items,
     required this.post,
-    this.onDoubleTap,
+    required this.onLike,
+    required this.onComment,
+    required this.onShare,
   });
   final List<ProfileFeedMedia> items;
   final ProfilePost post;
-  final VoidCallback? onDoubleTap;
+  final VoidCallback onLike;
+  final VoidCallback onComment;
+  final VoidCallback onShare;
 
   static const double _paddingLeft = 96;
   static const double _paddingRight = 12;
@@ -1091,11 +1181,15 @@ class _ProfilePostMedia extends StatelessWidget {
 
   void _openViewer(BuildContext context, int startIndex) {
     Navigator.of(context).push(
-      PageRouteBuilder(
-        opaque: false,
-        barrierColor: Colors.black,
-        pageBuilder: (_, __, ___) =>
-            _ProfileMediaViewer(items: items, initialIndex: startIndex),
+      MaterialPageRoute(
+        builder: (_) => _ProfileMediaViewer(
+          items: items,
+          initialIndex: startIndex,
+          post: post,
+          onLike: onLike,
+          onComment: onComment,
+          onShare: onShare,
+        ),
       ),
     );
   }
@@ -1148,7 +1242,6 @@ class _ProfilePostMedia extends StatelessWidget {
                 aspect: baseAspect,
                 onTap: () => _openViewer(context, 0),
                 onVideoTap: () => _openVideo(context, m),
-                onDoubleTap: onDoubleTap,
               ),
             ),
           );
@@ -1174,7 +1267,6 @@ class _ProfilePostMedia extends StatelessWidget {
                       aspect: aspect2,
                       onTap: () => _openViewer(context, 0),
                       onVideoTap: () => _openVideo(context, items[0]),
-                      onDoubleTap: onDoubleTap,
                     ),
                   ),
                   const SizedBox(width: _gap),
@@ -1184,7 +1276,6 @@ class _ProfilePostMedia extends StatelessWidget {
                       aspect: aspect2,
                       onTap: () => _openViewer(context, 1),
                       onVideoTap: () => _openVideo(context, items[1]),
-                      onDoubleTap: onDoubleTap,
                     ),
                   ),
                 ],
@@ -1213,7 +1304,6 @@ class _ProfilePostMedia extends StatelessWidget {
                   aspect: baseAspect,
                   onTap: () => _openViewer(context, i),
                   onVideoTap: () => _openVideo(context, m),
-                  onDoubleTap: onDoubleTap,
                 ),
               );
             },
@@ -1224,86 +1314,42 @@ class _ProfilePostMedia extends StatelessWidget {
   }
 }
 
-class _RoundedTile extends StatefulWidget {
+class _RoundedTile extends StatelessWidget {
   final ProfileFeedMedia m;
   final double aspect;
   final VoidCallback? onTap;
   final VoidCallback? onVideoTap;
-  final VoidCallback? onDoubleTap;
-
   const _RoundedTile({
     required this.m,
     required this.aspect,
     this.onTap,
     this.onVideoTap,
-    this.onDoubleTap,
   });
-
-  @override
-  State<_RoundedTile> createState() => _RoundedTileState();
-}
-
-class _RoundedTileState extends State<_RoundedTile>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl;
-  late final Animation<double> _scale;
-  late final Animation<double> _opacity;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 750),
-    );
-    _scale = TweenSequence([
-      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.3), weight: 25),
-      TweenSequenceItem(tween: Tween(begin: 1.3, end: 1.0), weight: 25),
-      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 30),
-      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 20),
-    ]).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
-    _opacity = TweenSequence([
-      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 10),
-      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 60),
-      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 30),
-    ]).animate(_ctrl);
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  void _handleDoubleTap() {
-    _ctrl.forward(from: 0);
-    widget.onDoubleTap?.call();
-  }
 
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(14),
-      child: GestureDetector(
-        onTap: () {
-          if (widget.m.type == PMediaType.video) {
-            widget.onVideoTap?.call();
-          } else {
-            widget.onTap?.call();
-          }
-        },
-        onDoubleTap: _handleDoubleTap,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            AspectRatio(
-              aspectRatio: widget.aspect,
-              child: widget.m.type == PMediaType.image
-                  ? (widget.m.isNetwork
-                        ? Image.network(
-                            widget.m.path,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Container(
+      child: Material(
+        color: Colors.black12,
+        child: InkWell(
+          onTap: () {
+            if (m.type == PMediaType.video) {
+              onVideoTap?.call();
+            } else {
+              onTap?.call();
+            }
+          },
+          child: AspectRatio(
+            aspectRatio: aspect,
+            child: m.type == PMediaType.image
+                ? (m.isNetwork
+                      ? Image.network(
+                          m.path,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            debugPrint('PROFILE BROKEN IMAGE: ${m.path}');
+                            return Container(
                               color: Colors.grey.shade200,
                               child: const Center(
                                 child: Icon(
@@ -1312,31 +1358,16 @@ class _RoundedTileState extends State<_RoundedTile>
                                   color: Colors.grey,
                                 ),
                               ),
-                            ),
-                          )
-                        : Image.file(File(widget.m.path), fit: BoxFit.cover))
-                  : _CoverVideo(
-                      path: widget.m.path,
-                      isNetwork: widget.m.isNetwork,
-                      onTap: widget.onVideoTap,
-                    ),
-            ),
-            AnimatedBuilder(
-              animation: _ctrl,
-              builder: (_, __) => Opacity(
-                opacity: _opacity.value,
-                child: Transform.scale(
-                  scale: _scale.value,
-                  child: const Icon(
-                    Icons.favorite,
-                    color: Colors.white,
-                    size: 90,
-                    shadows: [Shadow(color: Colors.black38, blurRadius: 12)],
+                            );
+                          },
+                        )
+                      : Image.file(File(m.path), fit: BoxFit.cover))
+                : _CoverVideo(
+                    path: m.path,
+                    isNetwork: m.isNetwork,
+                    onTap: onVideoTap,
                   ),
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -1347,93 +1378,373 @@ class _RoundedTileState extends State<_RoundedTile>
 class _ProfileMediaViewer extends StatefulWidget {
   final List<ProfileFeedMedia> items;
   final int initialIndex;
-  const _ProfileMediaViewer({required this.items, required this.initialIndex});
+  final ProfilePost post;
+  final VoidCallback onLike;
+  final VoidCallback onComment;
+  final VoidCallback onShare;
+  const _ProfileMediaViewer({
+    required this.items,
+    required this.initialIndex,
+    required this.post,
+    required this.onLike,
+    required this.onComment,
+    required this.onShare,
+  });
   @override
   State<_ProfileMediaViewer> createState() => _ProfileMediaViewerState();
 }
 
-class _ProfileMediaViewerState extends State<_ProfileMediaViewer> {
+class _ProfileMediaViewerState extends State<_ProfileMediaViewer>
+    with SingleTickerProviderStateMixin {
   late final PageController _pc;
+  late final AnimationController _heartCtrl;
+  late final Animation<double> _heartScale;
+  late final Animation<double> _heartOpacity;
   late int _index;
+  late bool _isLiked;
+  late int _likeCount;
 
   @override
   void initState() {
     super.initState();
     _index = widget.initialIndex;
     _pc = PageController(initialPage: _index);
+    _isLiked = widget.post.isLiked;
+    _likeCount = widget.post.likeCount;
+
+    _heartCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 750),
+    );
+    _heartScale = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.3), weight: 30),
+      TweenSequenceItem(tween: Tween(begin: 1.3, end: 1.0), weight: 15),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 30),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 25),
+    ]).animate(_heartCtrl);
+    _heartOpacity = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 15),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 55),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 30),
+    ]).animate(_heartCtrl);
   }
 
   @override
   void dispose() {
     _pc.dispose();
+    _heartCtrl.dispose();
     super.dispose();
   }
 
+  void _toggleLike() {
+    widget.onLike();
+    setState(() {
+      _isLiked = widget.post.isLiked;
+      _likeCount = widget.post.likeCount;
+    });
+  }
+
+  void _handleDoubleTap() {
+    _heartCtrl.forward(from: 0);
+    if (!_isLiked) _toggleLike();
+  }
+
+  String _fmt(int n) => n < 1000
+      ? '$n'
+      : '${(n / 1000).toStringAsFixed(1).replaceAll('.0', '')}K';
+
   @override
   Widget build(BuildContext context) {
+    final post = widget.post;
+
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFFFFF8F6),
       body: SafeArea(
-        child: Stack(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            PageView.builder(
-              controller: _pc,
-              onPageChanged: (i) => setState(() => _index = i),
-              itemCount: widget.items.length,
-              itemBuilder: (_, i) {
-                final item = widget.items[i];
-                if (item.type == PMediaType.image) {
-                  return Center(
-                    child: InteractiveViewer(
-                      minScale: 1,
-                      maxScale: 4,
-                      child: item.isNetwork
-                          ? Image.network(item.path, fit: BoxFit.contain)
-                          : Image.file(File(item.path), fit: BoxFit.contain),
-                    ),
-                  );
-                }
-                return Center(
-                  child: AspectRatio(
-                    aspectRatio: 16 / 9,
-                    child: _CoverVideo(
-                      path: item.path,
-                      isNetwork: item.isNetwork,
-                    ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 14, 12, 16),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 14,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
-                );
-              },
-            ),
-            Positioned(
-              top: 8,
-              left: 8,
-              child: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ),
-            if (widget.items.length > 1)
-              Positioned(
-                bottom: 18,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black54,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '${_index + 1}/${widget.items.length}',
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Back + menu
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.chevron_left,
+                                    size: 28,
+                                    color: Colors.black87,
+                                  ),
+                                  onPressed: () => Navigator.pop(context),
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.more_horiz,
+                                    color: Colors.black87,
+                                  ),
+                                  onPressed: () {},
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // Media + double-tap heart
+                          GestureDetector(
+                            onDoubleTap: _handleDoubleTap,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                AspectRatio(
+                                  aspectRatio: 4 / 5,
+                                  child: PageView.builder(
+                                    controller: _pc,
+                                    onPageChanged: (i) =>
+                                        setState(() => _index = i),
+                                    itemCount: widget.items.length,
+                                    itemBuilder: (_, i) {
+                                      final item = widget.items[i];
+                                      if (item.type == PMediaType.image) {
+                                        return item.isNetwork
+                                            ? Image.network(
+                                                item.path,
+                                                fit: BoxFit.cover,
+                                                width: double.infinity,
+                                                errorBuilder: (_, __, ___) =>
+                                                    const SizedBox.shrink(),
+                                              )
+                                            : Image.file(
+                                                File(item.path),
+                                                fit: BoxFit.cover,
+                                                width: double.infinity,
+                                              );
+                                      }
+                                      return _CoverVideo(
+                                        path: item.path,
+                                        isNetwork: item.isNetwork,
+                                      );
+                                    },
+                                  ),
+                                ),
+                                AnimatedBuilder(
+                                  animation: _heartCtrl,
+                                  builder: (_, __) => Opacity(
+                                    opacity: _heartOpacity.value,
+                                    child: Transform.scale(
+                                      scale: _heartScale.value,
+                                      child: const Icon(
+                                        Icons.favorite,
+                                        color: Colors.white,
+                                        size: 80,
+                                        shadows: [
+                                          Shadow(
+                                            color: Colors.black26,
+                                            blurRadius: 10,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // Dot indicators
+                          if (widget.items.length > 1) ...[
+                            const SizedBox(height: 10),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: List.generate(
+                                widget.items.length,
+                                (i) => AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  margin: const EdgeInsets.symmetric(
+                                    horizontal: 3,
+                                  ),
+                                  width: _index == i ? 16 : 6,
+                                  height: 6,
+                                  decoration: BoxDecoration(
+                                    color: _index == i
+                                        ? Colors.black87
+                                        : Colors.grey.shade300,
+                                    borderRadius: BorderRadius.circular(3),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+
+                          // Author row
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                            child: Row(
+                              children: [
+                                CircleAvatar(
+                                  radius: 16,
+                                  backgroundColor: Colors.grey.shade200,
+                                  foregroundImage: post.avatar.isNotEmpty
+                                      ? NetworkImage(post.avatar)
+                                      : null,
+                                  child: post.avatar.isEmpty
+                                      ? Text(
+                                          post.username.isNotEmpty
+                                              ? post.username[0].toUpperCase()
+                                              : '?',
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        )
+                                      : null,
+                                ),
+                                const SizedBox(width: 10),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      post.username,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 15,
+                                      ),
+                                    ),
+                                    Text(
+                                      post.time,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // Caption
+                          if (post.caption.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                              child: Text(
+                                post.caption,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                            ),
+
+                          // Actions
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
+                            child: Row(
+                              children: [
+                                GestureDetector(
+                                  onTap: _toggleLike,
+                                  child: Row(
+                                    children: [
+                                      Iconify(
+                                        _isLiked
+                                            ? Ph.heart_fill
+                                            : Ph.heart_bold,
+                                        size: 24,
+                                        color: _isLiked
+                                            ? Colors.red
+                                            : Colors.black87,
+                                      ),
+                                      if (_likeCount > 0) ...[
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          _fmt(_likeCount),
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: _isLiked
+                                                ? Colors.red
+                                                : Colors.black54,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 20),
+                                GestureDetector(
+                                  onTap: widget.onComment,
+                                  child: Row(
+                                    children: [
+                                      const Iconify(
+                                        Ph.chat_circle_bold,
+                                        size: 24,
+                                        color: Colors.black87,
+                                      ),
+                                      if (post.commentCount > 0) ...[
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          _fmt(post.commentCount),
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            color: Colors.black54,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 20),
+                                const Iconify(
+                                  Ph.shuffle_bold,
+                                  size: 24,
+                                  color: Colors.black87,
+                                ),
+                                const SizedBox(width: 20),
+                                GestureDetector(
+                                  onTap: () {
+                                    widget.onShare();
+                                    showPlaneSharePopup(
+                                      context,
+                                      shareLink:
+                                          'https://ifeed.app/p/${post.id}',
+                                    );
+                                  },
+                                  child: const Iconify(
+                                    Ph.paper_plane_tilt_bold,
+                                    size: 24,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          const SizedBox(height: 8),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
+            ),
           ],
         ),
       ),
