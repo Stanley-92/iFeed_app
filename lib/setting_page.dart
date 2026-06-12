@@ -6,6 +6,7 @@ import 'package:iconify_flutter/icons/uil.dart';
 import 'package:iconify_flutter/icons/ph.dart';
 import 'login.dart'; // adjust path if needed
 import 'services/auth_service.dart';
+import 'privacy_settings.dart';
 
 import 'package:iconify_flutter/icons/material_symbols.dart';
 import 'package:colorful_iconify_flutter/icons/logos.dart';
@@ -103,9 +104,12 @@ class _SttingPageState extends State<SttingPage> {
                         icon: const Iconify(Ph.lock_bold),
                         label: 'Privacy',
                         labelFontSize: 15,
-                        onTap: () {
-                          /* TODO: open Privacy */
-                        },
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const PrivacySettingsPage(),
+                          ),
+                        ),
                       ),
                       _SettingTile(
                         icon: const Iconify(Ph.user_circle_bold),

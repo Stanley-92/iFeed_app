@@ -57,6 +57,11 @@ class Story {
   bool get hasItems => itemCount > 0;
   String get summary => itemCount == 1 ? '1 story' : '$itemCount stories';
 
+  // Cached once per Story instance — stable reference across rebuilds
+  late final ImageProvider? avatarProvider = avatar.isNotEmpty
+      ? NetworkImage(avatar)
+      : null;
+
   ImageProvider? get coverImageProvider {
     if (items.isEmpty) return null;
     final first = items.first;
@@ -125,21 +130,31 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
   Future<void> _initWithAuth() async {
     final loggedIn = await isLoggedIn();
     if (!loggedIn || !mounted) return;
-    final uid = await getCurrentUserId();
-    final profile = await _getCurrentProfile();
-    if (!mounted) return;
-    setState(() {
-      _currentUserId = uid ?? '';
-      _currentUserName = profile.name;
-      _currentUserAvatar = profile.avatar ?? '';
-    });
-    loadPosts();
-    loadStories();
+    try {
+      final results = await Future.wait([
+        getCurrentUserId() as Future,
+        _getCurrentProfile() as Future,
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _currentUserId = (results[0] as String?) ?? '';
+        final profile = results[1] as ({String name, String? avatar});
+        _currentUserName = profile.name;
+        _currentUserAvatar = profile.avatar ?? '';
+      });
+    } catch (e) {
+      debugPrint('_initWithAuth error: $e');
+      if (!mounted) return;
+    }
+    await Future.wait([loadPosts(), loadStories()]);
   }
 
   Future<void> loadPosts() async {
     try {
+      final start = DateTime.now();
       final r = await apiGet('/posts?feed=$_feedTab');
+      final ms = DateTime.now().difference(start).inMilliseconds;
+      debugPrint('⏱️ Feed API: ${ms}ms');
       final list = expectJsonList(r);
       final posts = list.map((raw) {
         final data = raw as Map<String, dynamic>;
@@ -185,7 +200,10 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
     final myUid = await getCurrentUserId();
     if (myUid == null) return;
     try {
+      final start = DateTime.now();
       final r = await apiGet('/stories');
+      final ms = DateTime.now().difference(start).inMilliseconds;
+      debugPrint('⏱️ Stories API: ${ms}ms');
       final list = expectJsonList(r);
 
       // Group by userId
@@ -552,6 +570,15 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
     );
   }
 
+  void _onAddTapped() => _handleAddPost(context);
+
+  Future<void> _onProfileTapped() async {
+    final nav = Navigator.of(context);
+    final uid = await getCurrentUserId();
+    if (uid == null || !mounted) return;
+    nav.push(MaterialPageRoute(builder: (_) => ProfileUserScreen(userId: uid)));
+  }
+
   @override
   Widget build(BuildContext context) {
     // my story cover
@@ -624,9 +651,7 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
           slivers: [
             // -------------------- Stories --------------------
             SliverToBoxAdapter(
-              child: Container(
-                color: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 18),
+              child: RepaintBoundary(
                 child: Container(
                   color: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 18),
@@ -667,6 +692,7 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
                                   ? _currentUserName
                                   : 'Your story';
                               return _StoryTile(
+                                key: const ValueKey('__my_story__'),
                                 story:
                                     my ??
                                     Story(
@@ -686,15 +712,11 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
 
                             // Other users' stories
                             final s = stories[i - 1];
-                            final ImageProvider? imgProvider =
-                                s.avatar.isNotEmpty
-                                ? NetworkImage(s.avatar)
-                                : s.coverImageProvider;
 
                             return _StoryTile(
+                              key: ValueKey(s.id),
                               story: s,
                               onTap: () => _openStory(s),
-                              imageProvider: imgProvider,
                             );
                           },
                           separatorBuilder: (_, __) =>
@@ -801,17 +823,12 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
         ),
       ),
 
-      bottomNavigationBar: _BottomBar(
-        onAdd: () => _handleAddPost(context),
-        onReels: _openReels,
-        onProfile: () async {
-          final nav = Navigator.of(context);
-          final uid = await getCurrentUserId();
-          if (uid == null || !mounted) return;
-          nav.push(
-            MaterialPageRoute(builder: (_) => ProfileUserScreen(userId: uid)),
-          );
-        },
+      bottomNavigationBar: RepaintBoundary(
+        child: _BottomBar(
+          onAdd: _onAddTapped,
+          onReels: _openReels,
+          onProfile: _onProfileTapped,
+        ),
       ),
     );
   }
@@ -992,11 +1009,11 @@ class StoryRing extends StatelessWidget {
 
 class _StoryTile extends StatelessWidget {
   const _StoryTile({
+    super.key,
     required this.story,
     required this.onTap,
     this.onPlusTap,
     this.isCurrentUser = false,
-    this.imageProvider,
     this.label,
   });
 
@@ -1004,16 +1021,11 @@ class _StoryTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback? onPlusTap;
   final bool isCurrentUser;
-  final ImageProvider? imageProvider;
   final String? label;
 
   @override
   Widget build(BuildContext context) {
-    final cover =
-        imageProvider ??
-        (story.avatar.isNotEmpty
-            ? NetworkImage(story.avatar)
-            : story.coverImageProvider);
+    final cover = story.avatarProvider ?? story.coverImageProvider;
     final title = story.name.isNotEmpty ? story.name : 'Story';
     final subtitle =
         label ??
@@ -1859,10 +1871,10 @@ class _RoundedTileState extends State<_RoundedTile>
               aspectRatio: widget.aspect,
               child: widget.m.type == MediaType.image
                   ? (widget.m.isNetwork
-                        ? Image.network(
-                            widget.m.path,
+                        ? CachedNetworkImage(
+                            imageUrl: widget.m.path,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) =>
+                            errorWidget: (_, __, ___) =>
                                 const SizedBox.shrink(),
                           )
                         : Image.file(
@@ -1877,21 +1889,7 @@ class _RoundedTileState extends State<_RoundedTile>
                       onTap: widget.onVideoTap,
                     ),
             ),
-            AnimatedBuilder(
-              animation: _ctrl,
-              builder: (_, __) => Opacity(
-                opacity: _opacity.value,
-                child: Transform.scale(
-                  scale: _scale.value,
-                  child: const Icon(
-                    Icons.favorite,
-                    color: Colors.white,
-                    size: 90,
-                    shadows: [Shadow(color: Colors.black38, blurRadius: 12)],
-                  ),
-                ),
-              ),
-            ),
+            _HeartOverlay(controller: _ctrl, scale: _scale, opacity: _opacity),
           ],
         ),
       ),
@@ -1906,15 +1904,12 @@ class FillMedia extends StatelessWidget {
   Widget build(BuildContext context) {
     if (m.type == MediaType.image) {
       return m.isNetwork
-          ? Image.network(
-              m.path,
+          ? CachedNetworkImage(
+              imageUrl: m.path,
               fit: BoxFit.contain,
-              errorBuilder: (context, error, stackTrace) {
-                print('BROKEN IMAGE: ${m.path}');
-                return const Center(
-                  child: Icon(Icons.broken_image, size: 60, color: Colors.grey),
-                );
-              },
+              errorWidget: (_, __, ___) => const Center(
+                child: Icon(Icons.broken_image, size: 60, color: Colors.grey),
+              ),
             )
           : Image.file(File(m.path), fit: BoxFit.contain);
     }
@@ -2140,6 +2135,7 @@ class _MediaViewerState extends State<_MediaViewer>
                       ),
                     ],
                   ),
+
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(18),
                     child: SingleChildScrollView(
@@ -2188,11 +2184,11 @@ class _MediaViewerState extends State<_MediaViewer>
                                       final item = widget.items[i];
                                       if (item.type == MediaType.image) {
                                         return item.isNetwork
-                                            ? Image.network(
-                                                item.path,
+                                            ? CachedNetworkImage(
+                                                imageUrl: item.path,
                                                 fit: BoxFit.cover,
                                                 width: double.infinity,
-                                                errorBuilder: (_, __, ___) =>
+                                                errorWidget: (_, __, ___) =>
                                                     const SizedBox.shrink(),
                                               )
                                             : Image.file(
@@ -2210,21 +2206,22 @@ class _MediaViewerState extends State<_MediaViewer>
                                 ),
                                 AnimatedBuilder(
                                   animation: _heartCtrl,
-                                  builder: (_, __) => Opacity(
+                                  child: const Icon(
+                                    Icons.favorite,
+                                    color: Colors.white,
+                                    size: 80,
+                                    shadows: [
+                                      Shadow(
+                                        color: Colors.black26,
+                                        blurRadius: 10,
+                                      ),
+                                    ],
+                                  ),
+                                  builder: (_, child) => Opacity(
                                     opacity: _heartOpacity.value,
                                     child: Transform.scale(
                                       scale: _heartScale.value,
-                                      child: const Icon(
-                                        Icons.favorite,
-                                        color: Colors.white,
-                                        size: 80,
-                                        shadows: [
-                                          Shadow(
-                                            color: Colors.black26,
-                                            blurRadius: 10,
-                                          ),
-                                        ],
-                                      ),
+                                      child: child,
                                     ),
                                   ),
                                 ),
@@ -2741,29 +2738,12 @@ class _UploadPostPageState extends State<UploadPostPage> {
                       future: _getCurrentProfile(),
                       builder: (context, snap) {
                         final name = snap.data?.name ?? '';
-                        final avatar = snap.data?.avatar ?? '';
-                        return Row(
-                          children: [
-                            CircleAvatar(
-                              radius: 20,
-                              backgroundColor: Colors.grey.shade200,
-                              foregroundImage: avatar.isNotEmpty
-                                  ? NetworkImage(avatar)
-                                  : null,
-                              onForegroundImageError: avatar.isNotEmpty
-                                  ? (_, __) {}
-                                  : null,
-                              child: const Icon(Icons.person, size: 20),
-                            ),
-                            const SizedBox(width: 10),
-                            Text(
-                              name,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 15,
-                              ),
-                            ),
-                          ],
+                        return Text(
+                          name,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                          ),
                         );
                       },
                     ),
@@ -3297,27 +3277,39 @@ class _FollowButton extends StatefulWidget {
   const _FollowButton({required this.authorId});
   final String authorId;
 
+  // Static cache — survives widget rebuilds
+  static final Map<String, bool> _cache = {};
+
   @override
   State<_FollowButton> createState() => _FollowButtonState();
 }
 
 class _FollowButtonState extends State<_FollowButton> {
-  bool _isFollowing = false;
+  bool? _isFollowing;
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _checkFollowing();
+    // Use cache if available — no API call needed
+    final cached = _FollowButton._cache[widget.authorId];
+    if (cached != null) {
+      _isFollowing = cached;
+      _loading = false;
+    } else {
+      _checkFollowing();
+    }
   }
 
   Future<void> _checkFollowing() async {
     try {
       final r = await apiGet('/follows/${widget.authorId}');
       final data = expectJson(r);
+      final val = data['isFollowing'] == true;
+      _FollowButton._cache[widget.authorId] = val; // save to cache
       if (!mounted) return;
       setState(() {
-        _isFollowing = data['isFollowing'] == true;
+        _isFollowing = val;
         _loading = false;
       });
     } catch (_) {
@@ -3326,8 +3318,9 @@ class _FollowButtonState extends State<_FollowButton> {
   }
 
   Future<void> _toggle() async {
-    final prev = _isFollowing;
+    final prev = _isFollowing ?? false;
     setState(() => _isFollowing = !prev);
+    _FollowButton._cache[widget.authorId] = !prev;
     try {
       if (!prev) {
         await apiPost('/follows/${widget.authorId}', {});
@@ -3335,15 +3328,17 @@ class _FollowButtonState extends State<_FollowButton> {
         await apiDelete('/follows/${widget.authorId}');
       }
     } catch (_) {
-      if (mounted) setState(() => _isFollowing = prev);
+      if (mounted) {
+        setState(() => _isFollowing = prev);
+        _FollowButton._cache[widget.authorId] = prev;
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     if (_loading) return const SizedBox(width: 80, height: 30);
-
-    final following = _isFollowing;
+    final following = _isFollowing ?? false;
     return Padding(
       padding: const EdgeInsets.only(right: 4),
       child: DecoratedBox(
@@ -3371,6 +3366,60 @@ class _FollowButtonState extends State<_FollowButton> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _HeartOverlay extends StatefulWidget {
+  final AnimationController controller;
+  final Animation<double> scale;
+  final Animation<double> opacity;
+
+  const _HeartOverlay({
+    required this.controller,
+    required this.scale,
+    required this.opacity,
+  });
+
+  @override
+  State<_HeartOverlay> createState() => _HeartOverlayState();
+}
+
+class _HeartOverlayState extends State<_HeartOverlay> {
+  bool _active = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addStatusListener(_onStatus);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeStatusListener(_onStatus);
+    super.dispose();
+  }
+
+  void _onStatus(AnimationStatus status) {
+    final nowActive = status != AnimationStatus.dismissed;
+    if (nowActive != _active) setState(() => _active = nowActive);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_active) return const SizedBox.shrink();
+    return AnimatedBuilder(
+      animation: widget.controller,
+      child: const Icon(
+        Icons.favorite,
+        color: Colors.white,
+        size: 90,
+        shadows: [Shadow(color: Colors.black38, blurRadius: 12)],
+      ),
+      builder: (_, child) => Opacity(
+        opacity: widget.opacity.value,
+        child: Transform.scale(scale: widget.scale.value, child: child),
       ),
     );
   }
