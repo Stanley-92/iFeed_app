@@ -1,4 +1,5 @@
 // mainfeed.dart
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/gestures.dart';
@@ -104,7 +105,8 @@ class MainfeedScreen extends StatefulWidget {
   State<MainfeedScreen> createState() => _MainfeedScreenState();
 }
 
-class _MainfeedScreenState extends State<MainfeedScreen> {
+class _MainfeedScreenState extends State<MainfeedScreen>
+    with WidgetsBindingObserver {
   final List<_Post> _feedPosts = [];
   final List<ReelItem> _reels = <ReelItem>[];
 
@@ -112,7 +114,6 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
 
   Story? myStory;
 
-  // Stories loaded from Firestore
   List<Story> stories = [];
 
   String _feedTab = 'for_you';
@@ -121,10 +122,41 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
   String _currentUserName = '';
   String _currentUserAvatar = '';
 
+  Timer? _refreshTimer;
+  String _feedFingerprint = '';
+  String _storiesFingerprint = '';
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initWithAuth();
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      loadPosts();
+      _startRefreshTimer();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _refreshTimer?.cancel();
+    }
+  }
+
+  void _startRefreshTimer() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => loadPosts(),
+    );
   }
 
   Future<void> _initWithAuth() async {
@@ -147,15 +179,18 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
       if (!mounted) return;
     }
     await Future.wait([loadPosts(), loadStories()]);
+    _startRefreshTimer();
   }
 
   Future<void> loadPosts() async {
     try {
       final start = DateTime.now();
       final r = await apiGet('/posts?feed=$_feedTab');
-      final ms = DateTime.now().difference(start).inMilliseconds;
-      debugPrint('⏱️ Feed API: ${ms}ms');
-      final list = expectJsonList(r);
+      debugPrint(
+        '⏱️ Feed API: ${DateTime.now().difference(start).inMilliseconds}ms',
+      );
+      final body = expectJson(r);
+      final list = (body['posts'] as List?) ?? [];
       final posts = list.map((raw) {
         final data = raw as Map<String, dynamic>;
         final mediaRaw = (data['media'] as List?) ?? [];
@@ -186,7 +221,11 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
         );
       }).toList();
 
-      if (!mounted) return;
+      final fp = posts
+          .map((p) => '${p.id}:${p.likeCount}:${p.commentCount}')
+          .join(',');
+      if (!mounted || fp == _feedFingerprint) return;
+      _feedFingerprint = fp;
       setState(() {
         _feedPosts.clear();
         _feedPosts.addAll(posts);
@@ -256,7 +295,12 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
         }
       }
 
-      if (!mounted) return;
+      final fp = [
+        if (myStoryObj != null) 'me:${myStoryObj.itemCount}',
+        ...others.map((s) => '${s.id}:${s.itemCount}'),
+      ].join(',');
+      if (!mounted || fp == _storiesFingerprint) return;
+      _storiesFingerprint = fp;
       setState(() {
         myStory = myStoryObj;
         stories = others;
@@ -647,179 +691,186 @@ class _MainfeedScreenState extends State<MainfeedScreen> {
       ),
 
       body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            // -------------------- Stories --------------------
-            SliverToBoxAdapter(
-              child: RepaintBoundary(
-                child: Container(
-                  color: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 18),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 30),
-                        child: Row(
-                          children: [
-                            const Text(
-                              'Stories',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const Spacer(),
-                            if (stories.isNotEmpty)
-                              TextButton(
-                                onPressed: () => _openStory(stories.first),
-                                child: const Text('Watch all'),
-                              ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        height: 130,
-                        child: ListView.separated(
+        child: RefreshIndicator(
+          onRefresh: () => Future.wait([loadPosts(), loadStories()]),
+          child: CustomScrollView(
+            slivers: [
+              // -------------------- Stories --------------------
+              SliverToBoxAdapter(
+                child: RepaintBoundary(
+                  child: Container(
+                    color: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 18),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 30),
-                          scrollDirection: Axis.horizontal,
-                          itemBuilder: (_, i) {
-                            // Index 0 = current user's story / add-story button
-                            if (i == 0) {
-                              final myAvatar = _currentUserAvatar;
-                              final myName = _currentUserName.isNotEmpty
-                                  ? _currentUserName
-                                  : 'Your story';
-                              return _StoryTile(
-                                key: const ValueKey('__my_story__'),
-                                story:
-                                    my ??
-                                    Story(
-                                      id: 'me',
-                                      name: myName,
-                                      avatar: myAvatar,
-                                      items: const [],
-                                      hasNew: false,
-                                    ),
-                                isCurrentUser: true,
-                                onTap: () =>
-                                    my == null ? _addStory() : _openStory(my),
-                                onPlusTap: _addStory,
-                                label: my == null ? 'Add story' : my.summary,
-                              );
-                            }
-
-                            // Other users' stories
-                            final s = stories[i - 1];
-
-                            return _StoryTile(
-                              key: ValueKey(s.id),
-                              story: s,
-                              onTap: () => _openStory(s),
-                            );
-                          },
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(width: 18),
-                          itemCount: stories.length + 1,
+                          child: Row(
+                            children: [
+                              const Text(
+                                'Stories',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const Spacer(),
+                              if (stories.isNotEmpty)
+                                TextButton(
+                                  onPressed: () => _openStory(stories.first),
+                                  child: const Text('Watch all'),
+                                ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          height: 130,
+                          child: ListView.separated(
+                            padding: const EdgeInsets.symmetric(horizontal: 30),
+                            scrollDirection: Axis.horizontal,
+                            itemBuilder: (_, i) {
+                              // Index 0 = current user's story / add-story button
+                              if (i == 0) {
+                                final myAvatar = _currentUserAvatar;
+                                final myName = _currentUserName.isNotEmpty
+                                    ? _currentUserName
+                                    : 'Your story';
+                                return _StoryTile(
+                                  key: const ValueKey('__my_story__'),
+                                  story:
+                                      my ??
+                                      Story(
+                                        id: 'me',
+                                        name: myName,
+                                        avatar: myAvatar,
+                                        items: const [],
+                                        hasNew: false,
+                                      ),
+                                  isCurrentUser: true,
+                                  onTap: () =>
+                                      my == null ? _addStory() : _openStory(my),
+                                  onPlusTap: _addStory,
+                                  label: my == null ? 'Add story' : my.summary,
+                                );
+                              }
+
+                              // Other users' stories
+                              final s = stories[i - 1];
+
+                              return _StoryTile(
+                                key: ValueKey(s.id),
+                                story: s,
+                                onTap: () => _openStory(s),
+                              );
+                            },
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(width: 18),
+                            itemCount: stories.length + 1,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SliverToBoxAdapter(child: SizedBox(height: 8)),
+              const SliverToBoxAdapter(child: SizedBox(height: 8)),
 
-            if (_feedPosts.isEmpty)
-              const SliverToBoxAdapter(child: _EmptyFeed()),
+              if (_feedPosts.isEmpty)
+                const SliverToBoxAdapter(child: _EmptyFeed()),
 
-            // -------------------- Feed --------------------
-            SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, i) {
-                  if (i.isOdd) return const SizedBox(height: 30);
-                  final index = i ~/ 2;
-                  if (index >= _feedPosts.length) return null;
-                  final post = _feedPosts[index];
+              // -------------------- Feed --------------------
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, i) {
+                    if (i.isOdd) return const SizedBox(height: 30);
+                    final index = i ~/ 2;
+                    if (index >= _feedPosts.length) return null;
+                    final post = _feedPosts[index];
 
-                  return _PostCard(
-                    post: post,
-                    currentUserId: _currentUserId,
-                    onOpenComments: () => _openComments(post),
+                    return _PostCard(
+                      post: post,
+                      currentUserId: _currentUserId,
+                      onOpenComments: () => _openComments(post),
 
-                    //LIke Icon
-                    onLike: () async {
-                      if (!post.isLiked) {
-                        setState(() {
-                          post.isLiked = true;
-                          post.likeCount++;
-                        });
-                        try {
-                          await LikeService().likePost(post.id);
-                        } catch (e) {
-                          setState(() {
-                            post.isLiked = false;
-                            post.likeCount--;
-                          });
-                        }
-                      } else {
-                        setState(() {
-                          post.isLiked = false;
-                          post.likeCount--;
-                        });
-                        try {
-                          await LikeService().unlikePost(post.id);
-                        } catch (e) {
+                      //LIke Icon
+                      onLike: () async {
+                        if (!post.isLiked) {
                           setState(() {
                             post.isLiked = true;
                             post.likeCount++;
                           });
-                        }
-                      }
-                    },
-
-                    onShare: () =>
-                        setState(() => post.isShared = !post.isShared),
-                    onRepost: () async {
-                      final wasReposted = post.isReposted;
-                      final messenger = ScaffoldMessenger.of(context);
-                      setState(() {
-                        post.isReposted = !wasReposted;
-                        wasReposted ? post.shareCount-- : post.shareCount++;
-                      });
-                      try {
-                        final count = wasReposted
-                            ? await RepostService().undoRepost(post.id)
-                            : await RepostService().repost(post.id);
-                        if (mounted) setState(() => post.shareCount = count);
-                      } catch (e) {
-                        debugPrint('Repost error: $e');
-                        if (mounted) {
+                          try {
+                            await LikeService().likePost(post.id);
+                          } catch (e) {
+                            setState(() {
+                              post.isLiked = false;
+                              post.likeCount--;
+                            });
+                          }
+                        } else {
                           setState(() {
-                            post.isReposted = wasReposted;
-                            wasReposted ? post.shareCount++ : post.shareCount--;
+                            post.isLiked = false;
+                            post.likeCount--;
                           });
+                          try {
+                            await LikeService().unlikePost(post.id);
+                          } catch (e) {
+                            setState(() {
+                              post.isLiked = true;
+                              post.likeCount++;
+                            });
+                          }
                         }
-                        messenger.showSnackBar(
-                          SnackBar(
-                            content: Text('Repost failed: $e'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    },
-                    formatCount: _formatCount,
-                    reels: _reels,
-                    currentUserName: _currentUserName,
-                    currentUserAvatar: _currentUserAvatar,
-                  );
-                },
-                childCount: _feedPosts.isEmpty ? 0 : _feedPosts.length * 2 - 1,
+                      },
+
+                      onShare: () =>
+                          setState(() => post.isShared = !post.isShared),
+                      onRepost: () async {
+                        final wasReposted = post.isReposted;
+                        final messenger = ScaffoldMessenger.of(context);
+                        setState(() {
+                          post.isReposted = !wasReposted;
+                          wasReposted ? post.shareCount-- : post.shareCount++;
+                        });
+                        try {
+                          final count = wasReposted
+                              ? await RepostService().undoRepost(post.id)
+                              : await RepostService().repost(post.id);
+                          if (mounted) setState(() => post.shareCount = count);
+                        } catch (e) {
+                          debugPrint('Repost error: $e');
+                          if (mounted) {
+                            setState(() {
+                              post.isReposted = wasReposted;
+                              wasReposted
+                                  ? post.shareCount++
+                                  : post.shareCount--;
+                            });
+                          }
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content: Text('Repost failed: $e'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      },
+                      formatCount: _formatCount,
+                      reels: _reels,
+                      currentUserName: _currentUserName,
+                      currentUserAvatar: _currentUserAvatar,
+                    );
+                  },
+                  childCount: _feedPosts.isEmpty
+                      ? 0
+                      : _feedPosts.length * 2 - 1,
+                ),
               ),
-            ),
-            const SliverToBoxAdapter(child: SizedBox(height: 80)),
-          ],
+              const SliverToBoxAdapter(child: SizedBox(height: 80)),
+            ],
+          ),
         ),
       ),
 
@@ -2121,163 +2172,125 @@ class _MediaViewerState extends State<_MediaViewer>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(18),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.06),
-                        blurRadius: 14,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Back + menu
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        IconButton(
+                          icon: const Icon(
+                            Icons.chevron_left,
+                            size: 28,
+                            color: Colors.black87,
+                          ),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.more_horiz,
+                            color: Colors.black87,
+                          ),
+                          onPressed: () {},
+                        ),
+                      ],
+                    ),
                   ),
 
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
+                  // Media + double-tap heart
+                  GestureDetector(
+                    onDoubleTap: _handleDoubleTap,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        AspectRatio(
+                          aspectRatio: 4 / 5,
+                          child: PageView.builder(
+                            controller: _pc,
+                            onPageChanged: (i) => setState(() => _index = i),
+                            itemCount: widget.items.length,
+                            itemBuilder: (_, i) {
+                              final item = widget.items[i];
+                              if (item.type == MediaType.image) {
+                                return item.isNetwork
+                                    ? CachedNetworkImage(
+                                        imageUrl: item.path,
+                                        fit: BoxFit.cover,
+                                        width: double.infinity,
+                                        errorWidget: (_, __, ___) =>
+                                            const SizedBox.shrink(),
+                                      )
+                                    : Image.file(
+                                        File(item.path),
+                                        fit: BoxFit.cover,
+                                        width: double.infinity,
+                                      );
+                              }
+                              return _CoverVideo(
+                                path: item.path,
+                                isNetwork: item.isNetwork,
+                              );
+                            },
+                          ),
+                        ),
+                        AnimatedBuilder(
+                          animation: _heartCtrl,
+                          child: const Icon(
+                            Icons.favorite,
+                            color: Colors.white,
+                            size: 80,
+                            shadows: [
+                              Shadow(color: Colors.black26, blurRadius: 10),
+                            ],
+                          ),
+                          builder: (_, child) => Opacity(
+                            opacity: _heartOpacity.value,
+                            child: Transform.scale(
+                              scale: _heartScale.value,
+                              child: child,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Dot indicators
+                  if (widget.items.length > 1) ...[
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(
+                        widget.items.length,
+                        (i) => AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          margin: const EdgeInsets.symmetric(horizontal: 3),
+                          width: _index == i ? 16 : 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: _index == i
+                                ? Colors.black87
+                                : Colors.grey.shade300,
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+
+                  Expanded(
                     child: SingleChildScrollView(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Back + menu
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.chevron_left,
-                                    size: 28,
-                                    color: Colors.black87,
-                                  ),
-                                  onPressed: () => Navigator.pop(context),
-                                ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.more_horiz,
-                                    color: Colors.black87,
-                                  ),
-                                  onPressed: () {},
-                                ),
-                              ],
-                            ),
-                          ),
-
-                          // Media + double-tap heart
-                          GestureDetector(
-                            onDoubleTap: _handleDoubleTap,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                AspectRatio(
-                                  aspectRatio: 4 / 5,
-                                  child: PageView.builder(
-                                    controller: _pc,
-                                    onPageChanged: (i) =>
-                                        setState(() => _index = i),
-                                    itemCount: widget.items.length,
-                                    itemBuilder: (_, i) {
-                                      final item = widget.items[i];
-                                      if (item.type == MediaType.image) {
-                                        return item.isNetwork
-                                            ? CachedNetworkImage(
-                                                imageUrl: item.path,
-                                                fit: BoxFit.cover,
-                                                width: double.infinity,
-                                                errorWidget: (_, __, ___) =>
-                                                    const SizedBox.shrink(),
-                                              )
-                                            : Image.file(
-                                                File(item.path),
-                                                fit: BoxFit.cover,
-                                                width: double.infinity,
-                                              );
-                                      }
-                                      return _CoverVideo(
-                                        path: item.path,
-                                        isNetwork: item.isNetwork,
-                                      );
-                                    },
-                                  ),
-                                ),
-                                AnimatedBuilder(
-                                  animation: _heartCtrl,
-                                  child: const Icon(
-                                    Icons.favorite,
-                                    color: Colors.white,
-                                    size: 80,
-                                    shadows: [
-                                      Shadow(
-                                        color: Colors.black26,
-                                        blurRadius: 10,
-                                      ),
-                                    ],
-                                  ),
-                                  builder: (_, child) => Opacity(
-                                    opacity: _heartOpacity.value,
-                                    child: Transform.scale(
-                                      scale: _heartScale.value,
-                                      child: child,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-
-                          // Dot indicators
-                          if (widget.items.length > 1) ...[
-                            const SizedBox(height: 10),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: List.generate(
-                                widget.items.length,
-                                (i) => AnimatedContainer(
-                                  duration: const Duration(milliseconds: 200),
-                                  margin: const EdgeInsets.symmetric(
-                                    horizontal: 3,
-                                  ),
-                                  width: _index == i ? 16 : 6,
-                                  height: 6,
-                                  decoration: BoxDecoration(
-                                    color: _index == i
-                                        ? Colors.black87
-                                        : Colors.grey.shade300,
-                                    borderRadius: BorderRadius.circular(3),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-
                           // Author row
                           Padding(
                             padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
                             child: Row(
                               children: [
-                                CircleAvatar(
-                                  radius: 16,
-                                  backgroundColor: Colors.grey.shade200,
-                                  foregroundImage: post.avatar.isNotEmpty
-                                      ? NetworkImage(post.avatar)
-                                      : null,
-                                  child: post.avatar.isEmpty
-                                      ? Text(
-                                          post.username.isNotEmpty
-                                              ? post.username[0].toUpperCase()
-                                              : '?',
-                                          style: const TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        )
-                                      : null,
-                                ),
-                                const SizedBox(width: 10),
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -2485,7 +2498,7 @@ class _MediaViewerState extends State<_MediaViewer>
                       ),
                     ),
                   ),
-                ),
+                ],
               ),
             ),
           ],
