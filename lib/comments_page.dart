@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:iconify_flutter/iconify_flutter.dart';
 import 'package:iconify_flutter/icons/uil.dart';
 import 'package:iconify_flutter/icons/ph.dart';
+import 'package:iconify_flutter/icons/material_symbols.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 import 'package:ifeed/services/comment_service.dart';
@@ -884,7 +885,7 @@ class _CommentTile extends StatelessWidget {
                         ),
                         IconButton(
                           icon: const Iconify(
-                            Ph.paper_plane_tilt_light,
+                            MaterialSymbols.lock_outline,
                             size: 20,
                           ),
                           onPressed: () {},

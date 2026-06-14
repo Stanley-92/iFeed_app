@@ -123,12 +123,13 @@ class _ProfileUserScreenState extends State<ProfileUserScreen> {
         final cached = list
             .map((d) => _UserReply.fromMap(d as Map<String, dynamic>))
             .toList();
-        if (mounted)
+        if (mounted) {
           setState(
             () => _replies
               ..clear()
               ..addAll(cached),
           );
+        }
       }
     } catch (e) {
       debugPrint('loadReplies cache error: $e');

@@ -1,6 +1,9 @@
 // privacy_settings.dart
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:iconify_flutter/iconify_flutter.dart';
+import 'package:iconify_flutter/icons/material_symbols.dart';
+
 class PrivacySettingsPage extends StatefulWidget {
   const PrivacySettingsPage({super.key});
 
@@ -35,7 +38,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
   bool _shareDataWithPartners = false;
 
   static const _audience = ['Everyone', 'Followers', 'No one'];
-  static const _bg = Color(0xFFFCF7F6);
+  static const _bg = Color(0xFFF2F2F7);
   static const _accent = Color(0xFF6366F1);
 
   void _pick(String title, String current, void Function(String) onPick) {
@@ -141,34 +144,37 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+
         children: [
-         
-         
-   // ── ACCOUNT ─────────────────────────────
+          // ── ACCOUNT ─────────────────────────────
           _SectionLabel('ACCOUNT'),
           _Card(
             children: [
-              _Tile(
-                iconBg: const Color(0xFFEEEEEE),
-                iconColor: Colors.black54,
-                icon: Icons.lock_outline,
+              _Tile(                iconColor: Colors.black54,
                 label: 'Private account',
                 subtitle: 'Only approved followers see your posts',
                 trailing: _Switch(
                   value: _privateAccount,
                   onChanged: (v) => setState(() => _privateAccount = v),
                 ),
+                child: const Iconify(
+                  MaterialSymbols.lock,
+                  color: Colors.grey,
+                  size: 18,
+                ),
               ),
               _Divider(),
-              _Tile(
-                iconBg: const Color(0xFFDBEAF9),
-                iconColor: const Color(0xFF2196F3),
-                icon: Icons.person_add_outlined,
+              _Tile(                iconColor: const Color(0xFF2196F3),
                 label: 'Approve followers',
                 subtitle: 'Manually approve follow requests',
                 trailing: _Switch(
                   value: _approveFollowers,
                   onChanged: (v) => setState(() => _approveFollowers = v),
+                ),
+                child: const Iconify(
+                  MaterialSymbols.person_add_outline_rounded,
+                  color: Colors.grey,
+                  size: 18,
                 ),
               ),
             ],
@@ -178,10 +184,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
           _SectionLabel('VISIBILITY'),
           _Card(
             children: [
-              _Tile(
-                iconBg: const Color(0xFFD6F5E3),
-                iconColor: const Color(0xFF22C55E),
-                icon: Icons.visibility_outlined,
+              _Tile(                iconColor: const Color(0xFF22C55E),
                 label: 'Who can see my posts',
                 subtitle: 'Control post audience',
                 trailing: _Chip(_whoCanSeePosts),
@@ -190,11 +193,14 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
                   _whoCanSeePosts,
                   (v) => setState(() => _whoCanSeePosts = v),
                 ),
+                child: const Iconify(
+                  MaterialSymbols.visibility_outline,
+                  color: Color(0xFF22C55E),
+                  size: 18,
+                ),
               ),
               _Divider(),
-              _Tile(
-                iconBg: const Color(0xFFECDCFB),
-                iconColor: const Color(0xFFBF5AF2),
+              _Tile(                iconColor: const Color(0xFFBF5AF2),
                 icon: Icons.auto_stories_outlined,
                 label: 'Who can see my stories',
                 subtitle: 'Control story audience',
@@ -206,9 +212,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
                 ),
               ),
               _Divider(),
-              _Tile(
-                iconBg: const Color(0xFFFFF3CC),
-                iconColor: const Color(0xFFF59E0B),
+              _Tile(                iconColor: const Color(0xFFF59E0B),
                 icon: Icons.group_outlined,
                 label: 'Followers list visibility',
                 subtitle: 'Who can see your followers',
@@ -220,9 +224,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
                 ),
               ),
               _Divider(),
-              _Tile(
-                iconBg: const Color(0xFFD6F5E3),
-                iconColor: const Color(0xFF16A34A),
+              _Tile(                iconColor: const Color(0xFF16A34A),
                 icon: Icons.circle,
                 label: 'Activity status',
                 subtitle: 'Show when you were last active',
@@ -238,9 +240,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
           _SectionLabel('INTERACTIONS'),
           _Card(
             children: [
-              _Tile(
-                iconBg: const Color(0xFFFFE5CC),
-                iconColor: const Color(0xFFF97316),
+              _Tile(                iconColor: const Color(0xFFF97316),
                 icon: Icons.comment_outlined,
                 label: 'Who can comment',
                 subtitle: 'On your posts',
@@ -252,9 +252,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
                 ),
               ),
               _Divider(),
-              _Tile(
-                iconBg: const Color(0xFFFFF9CC),
-                iconColor: const Color(0xFFEAB308),
+              _Tile(                iconColor: const Color(0xFFEAB308),
                 icon: Icons.alternate_email,
                 label: 'Who can mention me',
                 subtitle: 'In posts and comments',
@@ -266,9 +264,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
                 ),
               ),
               _Divider(),
-              _Tile(
-                iconBg: const Color(0xFFDBEAF9),
-                iconColor: const Color(0xFF3B82F6),
+              _Tile(                iconColor: const Color(0xFF3B82F6),
                 icon: Icons.mail_outline,
                 label: 'Who can message me',
                 subtitle: 'Direct messages',
@@ -280,9 +276,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
                 ),
               ),
               _Divider(),
-              _Tile(
-                iconBg: const Color(0xFFD6F5E3),
-                iconColor: const Color(0xFF22C55E),
+              _Tile(                iconColor: const Color(0xFF22C55E),
                 icon: Icons.repeat,
                 label: 'Allow reposts',
                 subtitle: 'Let others reshare your posts',
@@ -298,9 +292,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
           _SectionLabel('BLOCKING & FILTERING'),
           _Card(
             children: [
-              _Tile(
-                iconBg: const Color(0xFFFFDDDD),
-                iconColor: const Color(0xFFEF4444),
+              _Tile(                iconColor: const Color(0xFFEF4444),
                 icon: Icons.block,
                 label: 'Blocked accounts',
                 subtitle: 'Manage users you\'ve blocked',
@@ -308,9 +300,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
                 onTap: () {},
               ),
               _Divider(),
-              _Tile(
-                iconBg: const Color(0xFFFFE5CC),
-                iconColor: const Color(0xFFF97316),
+              _Tile(                iconColor: const Color(0xFFF97316),
                 icon: Icons.volume_off_outlined,
                 label: 'Muted accounts',
                 subtitle: 'Hide content without blocking',
@@ -318,9 +308,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
                 onTap: () {},
               ),
               _Divider(),
-              _Tile(
-                iconBg: const Color(0xFFF0F0F0),
-                iconColor: Colors.black54,
+              _Tile(                iconColor: Colors.black54,
                 icon: Icons.filter_alt_outlined,
                 label: 'Keyword filters',
                 subtitle: 'Hide posts with specific words',
@@ -334,9 +322,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
           _SectionLabel('DISCOVERABILITY'),
           _Card(
             children: [
-              _Tile(
-                iconBg: const Color(0xFFECDCFB),
-                iconColor: const Color(0xFF9333EA),
+              _Tile(                iconColor: const Color(0xFF9333EA),
                 icon: Icons.search,
                 label: 'Show in search results',
                 subtitle: 'Let people find your profile',
@@ -346,9 +332,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
                 ),
               ),
               _Divider(),
-              _Tile(
-                iconBg: const Color(0xFFDBEAF9),
-                iconColor: const Color(0xFF3B82F6),
+              _Tile(                iconColor: const Color(0xFF3B82F6),
                 icon: Icons.person_search_outlined,
                 label: 'Suggest my account',
                 subtitle: 'Recommend your profile to others',
@@ -358,9 +342,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
                 ),
               ),
               _Divider(),
-              _Tile(
-                iconBg: const Color(0xFFD6F5E3),
-                iconColor: const Color(0xFF22C55E),
+              _Tile(                iconColor: const Color(0xFF22C55E),
                 icon: Icons.contacts_outlined,
                 label: 'Sync contacts',
                 subtitle: 'Find people from your contacts',
@@ -376,9 +358,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
           _SectionLabel('DATA & PERSONALIZATION'),
           _Card(
             children: [
-              _Tile(
-                iconBg: const Color(0xFFDBEAF9),
-                iconColor: const Color(0xFF3B82F6),
+              _Tile(                iconColor: const Color(0xFF3B82F6),
                 icon: Icons.tune,
                 label: 'Personalized content',
                 subtitle: 'Based on your activity',
@@ -388,9 +368,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
                 ),
               ),
               _Divider(),
-              _Tile(
-                iconBg: const Color(0xFFF0F0F0),
-                iconColor: Colors.black54,
+              _Tile(                iconColor: Colors.black54,
                 icon: Icons.share_outlined,
                 label: 'Share data with partners',
                 subtitle: 'Third-party data sharing',
@@ -400,9 +378,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
                 ),
               ),
               _Divider(),
-              _Tile(
-                iconBg: const Color(0xFFFFDDDD),
-                iconColor: const Color(0xFFE11D48),
+              _Tile(                iconColor: const Color(0xFFE11D48),
                 icon: Icons.download_outlined,
                 label: 'Download my data',
                 subtitle: 'Export posts, comments, media',
@@ -416,9 +392,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
           _SectionLabel('ACCOUNT ACTIONS'),
           _Card(
             children: [
-              _Tile(
-                iconBg: const Color(0xFFFFDDDD),
-                iconColor: const Color(0xFFEF4444),
+              _Tile(                iconColor: const Color(0xFFEF4444),
                 icon: Icons.pause_circle_outline,
                 label: 'Deactivate account',
                 subtitle: 'Temporarily disable your profile',
@@ -433,9 +407,7 @@ class _PrivacySettingsPageState extends State<PrivacySettingsPage> {
                 ),
               ),
               _Divider(),
-              _Tile(
-                iconBg: const Color(0xFFFFDDDD),
-                iconColor: const Color(0xFFEF4444),
+              _Tile(                iconColor: const Color(0xFFEF4444),
                 icon: Icons.delete_outline,
                 label: 'Delete account',
                 subtitle: 'Permanently remove your data',
@@ -537,7 +509,13 @@ class _Card extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFEFEFEF)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(children: children),
     );
@@ -546,20 +524,20 @@ class _Card extends StatelessWidget {
 
 class _Tile extends StatelessWidget {
   const _Tile({
-    required this.iconBg,
     required this.iconColor,
-    required this.icon,
+    this.icon,
+    this.child,
     required this.label,
     this.subtitle,
     this.trailing,
     this.onTap,
     this.hasArrow = false,
     this.labelColor,
-  });
+  }) : assert(icon != null || child != null);
 
-  final Color iconBg;
   final Color iconColor;
-  final IconData icon;
+  final IconData? icon;
+  final Widget? child;
   final String label;
   final String? subtitle;
   final Widget? trailing;
@@ -574,19 +552,11 @@ class _Tile extends StatelessWidget {
       splashColor: Colors.transparent,
       highlightColor: Colors.transparent,
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 14),
+        padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 16),
         child: Row(
           children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: iconBg,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(icon, color: iconColor, size: 18),
-            ),
-            const SizedBox(width: 12),
+            child ?? Icon(icon!, color: iconColor, size: 22),
+            const SizedBox(width: 13),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -595,7 +565,7 @@ class _Tile extends StatelessWidget {
                     label,
                     style: TextStyle(
                       fontSize: 15,
-                      fontWeight: FontWeight.w500,
+                      fontWeight: FontWeight.w600,
                       color: labelColor ?? Colors.black87,
                     ),
                   ),
@@ -631,10 +601,10 @@ class _Chip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0F0F0),
-        borderRadius: BorderRadius.circular(20),
+        color: const Color(0xFFF2F2F7),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -642,17 +612,13 @@ class _Chip extends StatelessWidget {
           Text(
             value,
             style: const TextStyle(
-              fontSize: 13,
+              fontSize: 12,
               color: Colors.black54,
               fontWeight: FontWeight.w500,
             ),
           ),
-          const SizedBox(width: 4),
-          const Icon(
-            Icons.check_box_outline_blank,
-            size: 13,
-            color: Colors.black38,
-          ),
+          const SizedBox(width: 2),
+          const Icon(Icons.chevron_right, size: 14, color: Colors.black38),
         ],
       ),
     );

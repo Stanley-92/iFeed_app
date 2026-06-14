@@ -860,8 +860,9 @@ class ChatState extends State<Chat> {
                                       onPointerMove: (e) {
                                         if (_micCancelled ||
                                             _isLocked ||
-                                            !_isRecording)
+                                            !_isRecording) {
                                           return;
+                                        }
                                         // slide left → cancel
                                         if (e.delta.dx < 0) {
                                           setState(
