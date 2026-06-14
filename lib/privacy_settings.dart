@@ -565,7 +565,7 @@ class _Tile extends StatelessWidget {
                     label,
                     style: TextStyle(
                       fontSize: 15,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w500,
                       color: labelColor ?? Colors.black87,
                     ),
                   ),
@@ -574,8 +574,9 @@ class _Tile extends StatelessWidget {
                     Text(
                       subtitle!,
                       style: const TextStyle(
-                        fontSize: 12,
+                        fontSize: 12.5,
                         color: Colors.black45,
+                        fontWeight: FontWeight.w400,
                       ),
                     ),
                   ],
